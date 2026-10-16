@@ -11,6 +11,15 @@ An Android (arm64) port of the PS5 version of **Plants vs. Zombies: Replanted** 
 > **decrypted** dump of the game (the folder containing `eboot.bin`). This repository does not contain or
 > distribute any game or PS5 firmware files.
 
+## Screenshots
+
+<table>
+<tr><td colspan="3"><img src="docs/screenshots/menu-touch.jpg" alt="Main menu with touch controls"></td></tr>
+<tr><td><img src="docs/screenshots/title.jpg" alt="Title screen"></td><td><img src="docs/screenshots/level-select.jpg" alt="Level select"></td><td><img src="docs/screenshots/level.jpg" alt="Level 1-6"></td></tr>
+</table>
+<sub>Snapdragon 8 Elite. Top: the main menu with the built-in touch controls (the layout is editable in Settings).</sub>
+
+
 ## Download
 
 Get the APK from [Releases](https://github.com/SFEZSergey/ReplantedAndroid/releases) (currently a beta).

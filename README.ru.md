@@ -10,6 +10,15 @@
 > ⚠️ **Игры в репозитории и в APK нет.** Нужен ваш собственный, законно полученный и **расшифрованный**
 > дамп игры (папка с `eboot.bin`). Репозиторий не содержит и не распространяет файлы игры или прошивки PS5.
 
+## Скриншоты
+
+<table>
+<tr><td colspan="3"><img src="docs/screenshots/menu-touch.jpg" alt="Main menu with touch controls"></td></tr>
+<tr><td><img src="docs/screenshots/title.jpg" alt="Title screen"></td><td><img src="docs/screenshots/level-select.jpg" alt="Level select"></td><td><img src="docs/screenshots/level.jpg" alt="Level 1-6"></td></tr>
+</table>
+<sub>Snapdragon 8 Elite. Сверху — главное меню со встроенным сенсорным управлением (раскладка настраивается в «Настройках»).</sub>
+
+
 ## Требования
 
 - Android 8.0+ (API 26), arm64-v8a.
