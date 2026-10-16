@@ -50,11 +50,15 @@ Fine-tuning is done in `env.txt` inside the game folder (`files/game/env.txt`), 
 
 ## Repository layout
 
+The emulator itself (AnyPS5) is written in C++ and lives in a submodule, so GitHub's language bar only shows this
+wrapper: the APK launcher (Java), the native entry point `sdl_main.c` and the bionic shim headers (C), and build scripts.
+
+
 | Path | Contents |
 |---|---|
 | `android/` | The APK: launcher and game Activity (Java), touch controls, `native/sdl_main.c` (libmain: starts box64, Vulkan through adrenotools, environment), `build.sh`, `tools/` |
-| `external/AnyPS5` | submodule — AnyPS5 fork, branch `android` (native bionic driver group, write watching, Android presentation, optimizations) |
-| `external/box64` | submodule — box64 fork, branch `android` (box64 as a library inside the APK, glibc compatibility on top of bionic, signals, DynaCache) |
+| `external/AnyPS5` | submodule (C++) — AnyPS5 fork, branch `android` (native bionic driver group, write watching, Android presentation, optimizations) |
+| `external/box64` | submodule (C) — box64 fork, branch `android` (box64 as a library inside the APK, glibc compatibility on top of bionic, signals, DynaCache) |
 | `patches/mesa-26.2.4-android.patch` | Turnip: host-memory import through KGSL, linear gralloc swapchain buffers |
 | `patches/sdl2-android-udev-once.patch` | SDL2 (an AnyPS5 submodule) |
 | `cmake/` | CMake toolchain files (bionic arm64 and x86-64 glibc), Meson cross file for Mesa, `box64-emu.sh` |

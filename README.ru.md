@@ -44,11 +44,15 @@
 
 ## Состав репозитория
 
+Сам эмулятор (AnyPS5) написан на C++ и подключён подмодулем, поэтому полоса языков GitHub показывает только эту
+обёртку: лаунчер APK (Java), нативную точку входа `sdl_main.c` и заголовки-прослойки bionic (C), скрипты сборки.
+
+
 | Путь | Что |
 |---|---|
 | `android/` | APK: лаунчер и игровая Activity (Java), сенсорное управление, `native/sdl_main.c` (libmain: запуск box64, Vulkan через adrenotools, окружение), `build.sh`, `tools/` |
-| `external/AnyPS5` | подмодуль — форк AnyPS5, ветка `android` (нативная bionic-группа драйвера, отслеживание записи, вывод на Android, оптимизации) |
-| `external/box64` | подмодуль — форк box64, ветка `android` (box64 как библиотека внутри APK, совместимость glibc поверх bionic, сигналы, DynaCache) |
+| `external/AnyPS5` | подмодуль (C++) — форк AnyPS5, ветка `android` (нативная bionic-группа драйвера, отслеживание записи, вывод на Android, оптимизации) |
+| `external/box64` | подмодуль (C) — форк box64, ветка `android` (box64 как библиотека внутри APK, совместимость glibc поверх bionic, сигналы, DynaCache) |
 | `patches/mesa-26.2.4-android.patch` | Turnip: импорт host-памяти через KGSL, линейные буферы swapchain с gralloc |
 | `patches/sdl2-android-udev-once.patch` | SDL2 (подмодуль AnyPS5) |
 | `cmake/` | toolchain-файлы CMake (bionic arm64 и x86-64 glibc), cross-файл Meson для Mesa, `box64-emu.sh` |
