@@ -69,6 +69,10 @@ public final class MainActivity extends Activity {
         settings.setOnClickListener(new View.OnClickListener() { @Override public void onClick(View v) { showSettings(true); } });
         LinearLayout.LayoutParams settingsSize = new LinearLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT); settingsSize.leftMargin = (int)(12*dp);
         actions.addView(settings, settingsSize);
+        Button logs = new Button(this); logs.setText(t("Логи", "Logs")); styleButton(logs, 0xff2e5e32, 14);
+        logs.setOnClickListener(new View.OnClickListener() { @Override public void onClick(View v) { chooseLogsTarget(); } });
+        LinearLayout.LayoutParams logsSize = new LinearLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT); logsSize.leftMargin = (int)(12*dp);
+        actions.addView(logs, logsSize);
         panel.addView(actions);
         root.addView(panel);
         homeView = root;
@@ -672,15 +676,38 @@ public final class MainActivity extends Activity {
                 Process logcat = new ProcessBuilder("logcat", "-d", "-v", "threadtime").redirectErrorStream(true).start();
                 try (InputStream in = logcat.getInputStream()) { copyStream(in, zip); }
                 zip.closeEntry();
+                int logcatStatus = logcat.waitFor();
+                if (logcatStatus != 0) throw new java.io.IOException("logcat exited with status " + logcatStatus);
                 if (android.os.Build.VERSION.SDK_INT >= 30) {
                     android.app.ActivityManager am = (android.app.ActivityManager) getSystemService(ACTIVITY_SERVICE);
                     StringBuilder exits = new StringBuilder();
                     int index = 0;
                     for (android.app.ApplicationExitInfo info : am.getHistoricalProcessExitReasons(null, 0, 5)) {
-                        exits.append(info.toString()).append("\n");
-                        try (InputStream trace = info.getTraceInputStream()) {
-                            if (trace != null) { zip.putNextEntry(new ZipEntry("exit-trace-" + index + ".txt")); copyStream(trace, zip); zip.closeEntry(); }
-                        } catch (Exception ignored) {}
+                        exits.append("exit ").append(index).append(":\n")
+                            .append("  process: ").append(info.getProcessName()).append("\n")
+                            .append("  reason: ").append(exitReasonName(info.getReason())).append(" (").append(info.getReason()).append(")\n")
+                            .append("  timestamp: ").append(info.getTimestamp()).append("\n")
+                            .append("  pid: ").append(info.getPid()).append(" status: ").append(info.getStatus()).append("\n")
+                            .append("  importance: ").append(info.getImportance()).append(" pss: ").append(info.getPss()).append(" rss: ").append(info.getRss()).append("\n")
+                            .append("  description: ").append(info.getDescription()).append("\n");
+                        InputStream trace = null;
+                        boolean traceError = false;
+                        try { trace = info.getTraceInputStream(); }
+                        catch (Exception e) {
+                            exits.append("  trace error: ").append(e).append("\n");
+                            traceError = true;
+                        }
+                        if (trace != null) {
+                            try (InputStream traceStream = trace) {
+                                zip.putNextEntry(new ZipEntry("exit-trace-" + index + ".trace"));
+                                copyStream(traceStream, zip);
+                                zip.closeEntry();
+                                exits.append("  trace: exit-trace-").append(index).append(".trace\n");
+                            }
+                        } else if (!traceError) {
+                            exits.append("  trace: unavailable\n");
+                        }
+                        exits.append("\n");
                         index++;
                     }
                     zip.putNextEntry(new ZipEntry("exit-reasons.txt")); zip.write(exits.toString().getBytes("UTF-8")); zip.closeEntry();
@@ -692,6 +719,19 @@ public final class MainActivity extends Activity {
             final String text = message;
             runOnUiThread(new Runnable() { @Override public void run() { notice(text); } });
         } }).start();
+    }
+
+    private static String exitReasonName(int reason) {
+        switch (reason) {
+            case android.app.ApplicationExitInfo.REASON_ANR: return "ANR";
+            case android.app.ApplicationExitInfo.REASON_CRASH: return "Java crash";
+            case android.app.ApplicationExitInfo.REASON_CRASH_NATIVE: return "native crash";
+            case android.app.ApplicationExitInfo.REASON_LOW_MEMORY: return "low memory";
+            case android.app.ApplicationExitInfo.REASON_EXIT_SELF: return "app requested exit";
+            case android.app.ApplicationExitInfo.REASON_SIGNALED: return "signal";
+            case android.app.ApplicationExitInfo.REASON_USER_REQUESTED: return "user requested";
+            default: return "other";
+        }
     }
 
     private static void copyStream(InputStream in, OutputStream out) throws java.io.IOException {
