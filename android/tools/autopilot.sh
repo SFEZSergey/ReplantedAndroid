@@ -2,7 +2,7 @@
 # Тестовый прогон игры автопилотом (только когда пользователь разрешил и телефоном не пользуется):
 # кладёт сценарий (SCENARIO=<файл> или встроенный: титульник -> меню -> уровень), запускает игру через
 # лаунчер (рантайм обновляется как при «Играть»), нажимает кнопки виртуальным геймпадом внутри игры,
-# снимает экран на каждой метке (SHOTS=0 — без снимков), затем закрывает игру и всё убирает.
+# снимает экран на каждой метке только с SHOTS=1 (на снимок могут попасть уведомления!), затем закрывает игру и всё убирает.
 # Отказывается, если экран включён и на нём другое приложение или уже идёт игра (FORCE=1 — всё равно).
 # PERF_AT=<метка> — профиль потока записи 8 с с этой метки (perf.txt). PROFILE=1 добавляет APS5_PROFILE_DRAW=1, EXTRA_ENV="A=1 B=2" — свои переменные. Итог: ~/ps5-android/apk/autopilot/<время>/ (log, summary.txt, снимки).
 set -u
@@ -83,6 +83,8 @@ if [ -n "${FIXFREQ:-}" ]; then
     echo "cpu max fixed: $(su -c 'cat /sys/devices/system/cpu/cpufreq/policy0/scaling_max_freq /sys/devices/system/cpu/cpufreq/policy6/scaling_max_freq' | tr '\n' ' ')"
 fi
 [ "$awake" != Awake ] && su -c "input keyevent KEYCODE_WAKEUP"
+# Лог прошлого запуска (со строкой «[autopilot] done») не должен закончить этот прогон раньше времени.
+su -c "rm -f $GAME/box64.log"; rm -f "$TMP/autopilot-box64.log"
 su -c "am start -n $PKG/.MainActivity --ez autostart true" >/dev/null
 echo "running ~$LEN s"
 seen=0; deadline=$(( $(date +%s) + LEN + 120 ))
@@ -98,10 +100,15 @@ while [ "$(date +%s)" -lt "$deadline" ]; do
         seen=$((seen + 1))
         name=$(grep -a "^\[autopilot\].*mark" "$TMP/autopilot-box64.log" | sed -n "${seen}p" | awk '{print $NF}')
         echo "mark $name"
-        [ "${SHOTS:-1}" = 1 ] && su -c "screencap -p" > "$OUT/$seen-$name.png"
+        [ "${SHOTS:-0}" = 1 ] && su -c "screencap -p" > "$OUT/$seen-$name.png"
         if [ "$name" = "${PERF_AT:-}" ]; then
             # Профиль потока записи (или потока очереди, PERF_THREAD=agc-queue-worke) на этой метке, 8 с.
-            su -c 'P=$(pidof -s '$PKG'); T=$(grep -l "'${PERF_THREAD:-agc-draw-record}'" /proc/$P/task/*/comm | head -1 | cut -d/ -f5); simpleperf record -t $T --duration 8 -f 2000 --call-graph fp -o /data/local/tmp/ap.data >/dev/null 2>&1' &
+            # PERF_THREAD=top — самый загруженный поток игры за 2 с (обычно её главный поток).
+            su -c 'P=$(pidof -s '$PKG'); if [ "'${PERF_THREAD:-agc-draw-record}'" = top ]; then
+                snap(){ for t in /proc/$P/task/*; do echo "${t##*/} $(cut -d" " -f14,15 $t/stat)"; done; }; snap > /data/local/tmp/ap1; sleep 2; snap > /data/local/tmp/ap2
+                T=$(awk "NR==FNR{a[\$1]=\$2+\$3; next} {print \$2+\$3-a[\$1], \$1}" /data/local/tmp/ap1 /data/local/tmp/ap2 | sort -rn | head -1 | cut -d" " -f2); echo "perf thread $T $(cat /proc/$P/task/$T/comm)" > /data/local/tmp/ap.thread
+              else T=$(grep -l "'${PERF_THREAD:-agc-draw-record}'" /proc/$P/task/*/comm | head -1 | cut -d/ -f5); fi
+              simpleperf record -t $T --duration 8 -f 2000 --call-graph fp -o /data/local/tmp/ap.data >/dev/null 2>&1' &
         fi
     done
     grep -a -q "^\[autopilot\].*done" "$TMP/autopilot-box64.log" && break

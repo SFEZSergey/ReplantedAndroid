@@ -72,7 +72,7 @@
 | `android/` | APK: лаунчер и игровая Activity (Java), сенсорное управление, `native/sdl_main.c` (libmain: запуск box64, Vulkan через adrenotools, окружение), `build.sh`, `tools/` |
 | `external/AnyPS5` | подмодуль (C++) — форк AnyPS5, ветка `android` (нативная bionic-группа драйвера, отслеживание записи, вывод на Android, оптимизации) |
 | `external/box64` | подмодуль (C) — форк box64, ветка `android` (box64 как библиотека внутри APK, совместимость glibc поверх bionic, сигналы, DynaCache) |
-| `patches/mesa-26.2.4-android.patch` | Turnip: импорт host-памяти через KGSL, линейные буферы swapchain с gralloc |
+| `patches/mesa-26.3-android.patch` | Turnip: импорт host-памяти через KGSL, линейные буферы swapchain с gralloc |
 | `patches/sdl2-android-udev-once.patch` | SDL2 (подмодуль AnyPS5) |
 | `cmake/` | toolchain-файлы CMake (bionic arm64 и x86-64 glibc), cross-файл Meson для Mesa, `box64-emu.sh` |
 | `compat/` | заголовки совместимости (ndk-shim, box64-android-compat) |
@@ -97,9 +97,9 @@ git -C external/AnyPS5/3rdparty/SDL2 apply ../../../../patches/sdl2-android-udev
    запуска x86-утилит сборки (`PVZ_BOX64`, см. `cmake/box64-emu.sh`).
 3. **box64** → `external/box64/build-lib`: `-DTERMUX=1 -DARM_DYNAREC=1 -DBOX64_SHARED_LIB=ON
    -DCMAKE_BUILD_TYPE=RelWithDebInfo -DCMAKE_C_FLAGS="--target=aarch64-linux-android30 -fPIC -I$PWD/compat/box64-android-compat"`.
-4. **Mesa 26.2.4 (Turnip)**: исходники mesa-26.2.4 + `patches/mesa-26.2.4-android.patch`, meson с
+4. **Mesa 26.3 (Turnip)**: ветка Mesa `26.3` + `patches/mesa-26.3-android.patch`, meson с
    `--cross-file cmake/mesa-android-cross.ini -Dbuildtype=release -Dvulkan-drivers=freedreno -Dgallium-drivers= -Dfreedreno-kmds=kgsl -Dplatforms=android -Dandroid-stub=true -Dandroid-libbacktrace=disabled -Dglx=disabled -Degl=disabled -Dgles1=disabled -Dgles2=disabled -Dopengl=false -Dllvm=disabled -Dzlib=enabled`
-   → `MESA_BUILD_DIR`.
+   → `MESA_BUILD_DIR`. В Termux сначала поправьте первую строку Python-скриптов на python Termux (`termux-fix-shebang`): `/usr/bin/env` там нет.
 5. **libadrenotools** (сборка по его README) → `ADRENOTOOLS_DIR`; **relinker AnyPS5** для arm64
    (`-DANYPS5_RELINKER_ONLY=ON`) → `RELINKER_BIN`; x86-64 библиотеки времени выполнения из Debian/Ubuntu
    (`libstdc++.so.6/.5`, `libgcc_s.so.1`, `libssl/libcrypto 1.1 и 1.0.0`, `libmbed*`, `libpng12`, `libunwind`) → `X64LIB_DIR`;

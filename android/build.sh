@@ -8,7 +8,7 @@ set -euo pipefail
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"; APK="$ROOT/android"
 SDK="${ANDROID_JAR:-$ROOT/deps/android-sdk/platforms/android-35/android.jar}"
 ANYPS5="${ANYPS5_DIR:-$ROOT/external/AnyPS5}"; BOX64="${BOX64_DIR:-$ROOT/external/box64}"
-MESA_BUILD="${MESA_BUILD_DIR:-$ROOT/deps/mesa-26.2.4/build-android}"
+MESA_BUILD="${MESA_BUILD_DIR:-$ROOT/deps/mesa-26.3/build-android}"
 RELINKER="${RELINKER_BIN:-$ROOT/deps/bin/relinker}"; X64LIB="${X64LIB_DIR:-$ROOT/deps/x64lib}"
 NDK_SHIM="${NDK_SHIM_DIR:-$ROOT/compat/ndk-shim}"
 SDL="$ANYPS5/3rdparty/SDL2/android-project/app/src/main/java"; OUT="$APK/out"; GEN="$OUT/gen"; CLASSES="$OUT/classes"

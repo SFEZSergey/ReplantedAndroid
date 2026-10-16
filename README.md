@@ -77,7 +77,7 @@ wrapper: the APK launcher (Java), the native entry point `sdl_main.c` and the bi
 | `android/` | The APK: launcher and game Activity (Java), touch controls, `native/sdl_main.c` (libmain: starts box64, Vulkan through adrenotools, environment), `build.sh`, `tools/` |
 | `external/AnyPS5` | submodule (C++) — AnyPS5 fork, branch `android` (native bionic driver group, write watching, Android presentation, optimizations) |
 | `external/box64` | submodule (C) — box64 fork, branch `android` (box64 as a library inside the APK, glibc compatibility on top of bionic, signals, DynaCache) |
-| `patches/mesa-26.2.4-android.patch` | Turnip: host-memory import through KGSL, linear gralloc swapchain buffers |
+| `patches/mesa-26.3-android.patch` | Turnip: host-memory import through KGSL, linear gralloc swapchain buffers |
 | `patches/sdl2-android-udev-once.patch` | SDL2 (an AnyPS5 submodule) |
 | `cmake/` | CMake toolchain files (bionic arm64 and x86-64 glibc), Meson cross file for Mesa, `box64-emu.sh` |
 | `compat/` | compatibility headers (ndk-shim, box64-android-compat) |
@@ -102,9 +102,9 @@ git -C external/AnyPS5/3rdparty/SDL2 apply ../../../../patches/sdl2-android-udev
    run the x86 build tools (`PVZ_BOX64`, see `cmake/box64-emu.sh`).
 3. **box64** → `external/box64/build-lib`: `-DTERMUX=1 -DARM_DYNAREC=1 -DBOX64_SHARED_LIB=ON
    -DCMAKE_BUILD_TYPE=RelWithDebInfo -DCMAKE_C_FLAGS="--target=aarch64-linux-android30 -fPIC -I$PWD/compat/box64-android-compat"`.
-4. **Mesa 26.2.4 (Turnip)**: mesa-26.2.4 sources + `patches/mesa-26.2.4-android.patch`, meson with
+4. **Mesa 26.3 (Turnip)**: the Mesa `26.3` branch + `patches/mesa-26.3-android.patch`, meson with
    `--cross-file cmake/mesa-android-cross.ini -Dbuildtype=release -Dvulkan-drivers=freedreno -Dgallium-drivers= -Dfreedreno-kmds=kgsl -Dplatforms=android -Dandroid-stub=true -Dandroid-libbacktrace=disabled -Dglx=disabled -Degl=disabled -Dgles1=disabled -Dgles2=disabled -Dopengl=false -Dllvm=disabled -Dzlib=enabled`
-   → `MESA_BUILD_DIR`.
+   → `MESA_BUILD_DIR`. On Termux, first point the Python scripts' shebangs at Termux's python (`termux-fix-shebang`), `/usr/bin/env` does not exist there.
 5. **libadrenotools** (built per its README) → `ADRENOTOOLS_DIR`; the **AnyPS5 relinker** for arm64
    (`-DANYPS5_RELINKER_ONLY=ON`) → `RELINKER_BIN`; x86-64 runtime libraries from Debian/Ubuntu
    (`libstdc++.so.6/.5`, `libgcc_s.so.1`, `libssl/libcrypto 1.1 and 1.0.0`, `libmbed*`, `libpng12`, `libunwind`) → `X64LIB_DIR`;
