@@ -33,6 +33,7 @@ import java.io.OutputStream;
 public final class MainActivity extends Activity {
     private static final int PICK_GAME_DIRECTORY = 10;
     private static final int PICK_DRIVER_PACKAGE = 11;
+    private static final int SAVE_LOGS = 12;
     private Button driverButton, gameLanguageButton, uiLanguageButton;
     private TextView status;
     private Button start;
@@ -64,6 +65,10 @@ public final class MainActivity extends Activity {
         actions.addView(start, startSize);
         Button choose = new Button(this); choose.setText(t("Папка дампа", "Dump folder")); styleButton(choose, 0xff2e5e32, 14);
         choose.setOnClickListener(new View.OnClickListener() { @Override public void onClick(View v) { chooseDirectory(); } }); actions.addView(choose);
+        Button logs = new Button(this); logs.setText(t("Логи", "Logs")); styleButton(logs, 0xff2e5e32, 14);
+        logs.setOnClickListener(new View.OnClickListener() { @Override public void onClick(View v) { chooseLogsTarget(); } });
+        LinearLayout.LayoutParams logsSize = new LinearLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT); logsSize.leftMargin = (int)(12*dp);
+        actions.addView(logs, logsSize);
         panel.addView(actions);
         LinearLayout options = new LinearLayout(this); options.setOrientation(LinearLayout.HORIZONTAL); options.setGravity(Gravity.CENTER_VERTICAL); options.setPadding(0, (int)(10*dp), 0, 0);
         final android.content.SharedPreferences touch = getSharedPreferences("touch_controls", MODE_PRIVATE);
@@ -85,6 +90,30 @@ public final class MainActivity extends Activity {
             fps.setText("FPS: " + limits[next]);
         }});
         options.addView(fps);
+        // Разрешение вывода: авто — пропорции экрана, не выше кадра игры (1080p); экран — полное разрешение панели; 720p.
+        final Button resolution = new Button(this); styleButton(resolution, 0xff2e5e32, 13);
+        final String[] resolutions = {"auto", "native", "720"};
+        resolution.setText(resolutionLabel(launcherValue("APS5_OUTPUT_RES")));
+        resolution.setOnClickListener(new View.OnClickListener() { @Override public void onClick(View v) {
+            String current = launcherValue("APS5_OUTPUT_RES"); if (current == null) current = "auto";
+            int next = 0; for (int i = 0; i < resolutions.length; i++) if (resolutions[i].equals(current)) next = (i + 1) % resolutions.length;
+            setLauncherValue("APS5_OUTPUT_RES", next == 0 ? null : resolutions[next]);
+            resolution.setText(resolutionLabel(launcherValue("APS5_OUTPUT_RES")));
+        }});
+        LinearLayout.LayoutParams resolutionSize = new LinearLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT); resolutionSize.leftMargin = (int)(8*dp);
+        options.addView(resolution, resolutionSize);
+        // Вписывание кадра 16:9 в экран: с полосами → заполнить (обрезка краёв) → растянуть.
+        final Button scale = new Button(this); styleButton(scale, 0xff2e5e32, 13);
+        final String[] scales = {"fit", "fill", "stretch"};
+        scale.setText(scaleLabel(launcherValue("APS5_SCALE_MODE")));
+        scale.setOnClickListener(new View.OnClickListener() { @Override public void onClick(View v) {
+            String current = launcherValue("APS5_SCALE_MODE"); if (current == null) current = "fit";
+            int next = 0; for (int i = 0; i < scales.length; i++) if (scales[i].equals(current)) next = (i + 1) % scales.length;
+            setLauncherValue("APS5_SCALE_MODE", next == 0 ? null : scales[next]);
+            scale.setText(scaleLabel(launcherValue("APS5_SCALE_MODE")));
+        }});
+        LinearLayout.LayoutParams scaleSize = new LinearLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT); scaleSize.leftMargin = (int)(8*dp);
+        options.addView(scale, scaleSize);
         panel.addView(options);
         // Драйвер GPU, язык игры, язык лаунчера.
         LinearLayout more = new LinearLayout(this); more.setOrientation(LinearLayout.HORIZONTAL); more.setGravity(Gravity.CENTER_VERTICAL); more.setPadding(0, (int)(8*dp), 0, 0);
@@ -418,6 +447,10 @@ public final class MainActivity extends Activity {
     }
     @Override protected void onActivityResult(int request, int result, Intent data) {
         super.onActivityResult(request, result, data);
+        if (request == SAVE_LOGS && result == RESULT_OK && data != null && data.getData() != null) {
+            saveLogs(data.getData());
+            return;
+        }
         if (request == PICK_DRIVER_PACKAGE && result == RESULT_OK && data != null && data.getData() != null) {
             importDriver(data.getData());
             return;
@@ -428,6 +461,98 @@ public final class MainActivity extends Activity {
             getContentResolver().takePersistableUriPermission(uri, flags);
             getPreferences(MODE_PRIVATE).edit().putString("game_tree", uri.toString()).apply(); showStatus();
         }
+    }
+
+    private String resolutionLabel(String value) {
+        if ("native".equals(value)) return t("Экран: ", "Res: ") + displaySize(0);
+        if ("720".equals(value)) return t("Экран: ", "Res: ") + displaySize(720);
+        return t("Экран: авто ", "Res: auto ") + displaySize(1080);
+    }
+
+    // Размер вывода в альбомной ориентации: экран, уменьшенный до заданной высоты (0 — без уменьшения).
+    private String displaySize(int rows) {
+        android.util.DisplayMetrics metrics = new android.util.DisplayMetrics();
+        getWindowManager().getDefaultDisplay().getRealMetrics(metrics);
+        int width = Math.max(metrics.widthPixels, metrics.heightPixels), height = Math.min(metrics.widthPixels, metrics.heightPixels);
+        if (rows > 0 && height > rows) { width = Math.round(width * (float) rows / height / 2) * 2; height = rows; }
+        return width + "×" + height;
+    }
+
+    private String scaleLabel(String value) {
+        if ("fill".equals(value)) return t("Заполнить", "Fill");
+        if ("stretch".equals(value)) return t("Растянуть", "Stretch");
+        return t("С полосами", "Fit");
+    }
+
+    // Логи для отчёта о вылете (на телефонах без root папка приложения закрыта): zip с box64.log, relinker.log,
+    // logcat приложения, сведениями об устройстве и причинами последних завершений процесса (Android 11+, с трассой нативного вылета).
+    private void chooseLogsTarget() {
+        Intent i = new Intent(Intent.ACTION_CREATE_DOCUMENT);
+        i.addCategory(Intent.CATEGORY_OPENABLE);
+        i.setType("application/zip");
+        i.putExtra(Intent.EXTRA_TITLE, "pvz-logs-" + new java.text.SimpleDateFormat("yyyyMMdd-HHmmss", Locale.US).format(new java.util.Date()) + ".zip");
+        startActivityForResult(i, SAVE_LOGS);
+    }
+
+    private void saveLogs(final Uri target) {
+        status.setText(t("Собираю логи…", "Collecting logs…"));
+        new Thread(new Runnable() { @Override public void run() {
+            String message;
+            try (OutputStream raw = getContentResolver().openOutputStream(target); java.util.zip.ZipOutputStream zip = new java.util.zip.ZipOutputStream(raw)) {
+                File game = new File(getFilesDir(), "game");
+                for (String name : new String[] {"box64.log", "relinker.log", "launcher.env", "env.txt"}) {
+                    File file = new File(game, name);
+                    if (file.isFile()) { zip.putNextEntry(new ZipEntry(name)); Files.copy(file.toPath(), zip); zip.closeEntry(); }
+                }
+                zip.putNextEntry(new ZipEntry("device.txt")); zip.write(deviceInfo().getBytes("UTF-8")); zip.closeEntry();
+                zip.putNextEntry(new ZipEntry("logcat.txt"));
+                Process logcat = new ProcessBuilder("logcat", "-d", "-v", "threadtime").redirectErrorStream(true).start();
+                try (InputStream in = logcat.getInputStream()) { copyStream(in, zip); }
+                zip.closeEntry();
+                if (android.os.Build.VERSION.SDK_INT >= 30) {
+                    android.app.ActivityManager am = (android.app.ActivityManager) getSystemService(ACTIVITY_SERVICE);
+                    StringBuilder exits = new StringBuilder();
+                    int index = 0;
+                    for (android.app.ApplicationExitInfo info : am.getHistoricalProcessExitReasons(null, 0, 5)) {
+                        exits.append(info.toString()).append("\n");
+                        try (InputStream trace = info.getTraceInputStream()) {
+                            if (trace != null) { zip.putNextEntry(new ZipEntry("exit-trace-" + index + ".txt")); copyStream(trace, zip); zip.closeEntry(); }
+                        } catch (Exception ignored) {}
+                        index++;
+                    }
+                    zip.putNextEntry(new ZipEntry("exit-reasons.txt")); zip.write(exits.toString().getBytes("UTF-8")); zip.closeEntry();
+                }
+                message = t("Логи сохранены. Отправьте этот zip-файл разработчику.", "Logs saved. Send this zip file to the developer.");
+            } catch (Exception e) {
+                message = t("Не удалось сохранить логи: ", "Could not save logs: ") + e;
+            }
+            final String text = message;
+            runOnUiThread(new Runnable() { @Override public void run() { status.setText(text); } });
+        } }).start();
+    }
+
+    private static void copyStream(InputStream in, OutputStream out) throws java.io.IOException {
+        byte[] buffer = new byte[65536];
+        for (int n; (n = in.read(buffer)) > 0; ) out.write(buffer, 0, n);
+    }
+
+    private String deviceInfo() {
+        StringBuilder b = new StringBuilder();
+        b.append("model: ").append(android.os.Build.MANUFACTURER).append(' ').append(android.os.Build.MODEL).append(" (").append(android.os.Build.DEVICE).append(")\n");
+        b.append("android: ").append(android.os.Build.VERSION.RELEASE).append(" sdk ").append(android.os.Build.VERSION.SDK_INT).append("\n");
+        b.append("board: ").append(android.os.Build.BOARD).append(" hardware: ").append(android.os.Build.HARDWARE).append("\n");
+        if (android.os.Build.VERSION.SDK_INT >= 31) b.append("soc: ").append(android.os.Build.SOC_MANUFACTURER).append(' ').append(android.os.Build.SOC_MODEL).append("\n");
+        b.append("abis: ").append(java.util.Arrays.toString(android.os.Build.SUPPORTED_ABIS)).append("\n");
+        try { b.append("app: ").append(getPackageManager().getPackageInfo(getPackageName(), 0).versionName).append("\n"); } catch (Exception ignored) {}
+        b.append("display: ").append(displaySize(0)).append("\n");
+        android.app.ActivityManager.MemoryInfo memory = new android.app.ActivityManager.MemoryInfo();
+        ((android.app.ActivityManager) getSystemService(ACTIVITY_SERVICE)).getMemoryInfo(memory);
+        b.append("ram: total ").append(memory.totalMem >> 20).append(" MB, available ").append(memory.availMem >> 20).append(" MB\n");
+        b.append("free storage: ").append(getFilesDir().getUsableSpace() >> 20).append(" MB\n");
+        for (String path : new String[] {"/proc/cpuinfo", "/proc/meminfo"}) {
+            try { b.append("\n== ").append(path).append("\n").append(new String(Files.readAllBytes(new File(path).toPath()), "UTF-8")); } catch (Exception ignored) {}
+        }
+        return b.toString();
     }
 
     private void importAndStart() {

@@ -18,7 +18,8 @@ LIB="$OUT/lib/arm64-v8a"
 rm -rf "$OUT"; mkdir -p "$GEN" "$CLASSES" "$LIB" "$OUT/assets/runtime/prx" "$OUT/assets/runtime/x64lib"
 aapt package -f -m -J "$GEN" -S "$APK/res" -M "$APK/AndroidManifest.xml" -I "$SDK" -F "$OUT/resources.ap_"
 find "$APK/src" "$SDL" "$GEN" -name '*.java' -print > "$OUT/sources.list"
-javac -nowarn -source 8 -target 8 -classpath "$SDK" -d "$CLASSES" $(cat "$OUT/sources.list") 2>&1 | grep -v "^warning\|^Note" || true
+javac -nowarn -source 8 -target 8 -classpath "$SDK" -d "$CLASSES" $(cat "$OUT/sources.list") > "$OUT/javac.log" 2>&1 || { grep -v "^warning\|^Note" "$OUT/javac.log"; exit 1; }
+grep -v "^warning\|^Note" "$OUT/javac.log" || true
 d8 --min-api 26 --lib "$SDK" --output "$OUT" $(find "$CLASSES" -name "*.class" -print)
 
 # Нативные библиотеки

@@ -53,6 +53,7 @@ body:
     attributes:
       label: Logs
       description: |
-        Rooted phones: attach `/data/data/org.anyps5.android/files/game/box64.log`.
+        Press "Logs" in the launcher after the crash and attach the zip.
+        Rooted phones: `/data/data/org.anyps5.android/files/game/box64.log`.
         Otherwise (with a PC): `adb logcat -d > logcat.txt` right after the crash.
-        A "Logs" button in the launcher is planned (#1).
+        Easiest: the "Logs" button in the launcher (v0.1.2-beta+) saves a zip — attach it here.
