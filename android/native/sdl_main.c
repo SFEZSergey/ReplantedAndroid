@@ -15,6 +15,7 @@
 #include <stdlib.h>
 #include <string.h>
 #include <unistd.h>
+#include <sys/stat.h>
 #include <jni.h>
 #include <stdatomic.h>
 #include <stdint.h>
@@ -45,14 +46,36 @@ extern char **environ;
 
 static void setdefault(const char *name, const char *value) { setenv(name, value, 0); }
 
-static void *open_vulkan(const char *native_dir) {
+// Драйвер Vulkan (выбор в лаунчере, launcher.env):
+//   APS5_GPU_DRIVER не задан / "builtin" — встроенный Turnip (libvulkan_freedreno.so в nativeLibraryDir);
+//   "system" — системный драйвер телефона (libvulkan.so);
+//   иначе — каталог пакета драйвера (adrenotools, meta.json), библиотека — APS5_GPU_DRIVER_LIB.
+// Не загрузился выбранный — пробуем встроенный Turnip. APS5_SYSTEM_VULKAN=1 — как "system" (старый флаг).
+// tmp_dir нужен adrenotools на Android 9 и ниже.
+static void *open_vulkan(const char *native_dir, const char *tmp_dir) {
     char hook_dir[PATH_MAX];
     snprintf(hook_dir, sizeof(hook_dir), "%s/", native_dir);
-    // Turnip лежит в nativeLibraryDir как libvulkan_freedreno.so (системный драйвер Qualcomm без
-    // VK_EXT_external_memory_host не подходит). APS5_SYSTEM_VULKAN=1 — проверить системный драйвер.
-    if (getenv("APS5_SYSTEM_VULKAN") != NULL) return dlopen("libvulkan.so", RTLD_NOW);
-    void *handle = adrenotools_open_libvulkan(RTLD_NOW, ADRENOTOOLS_DRIVER_CUSTOM, NULL, hook_dir, hook_dir, "libvulkan_freedreno.so", NULL, NULL);
+    char tmp[PATH_MAX];
+    snprintf(tmp, sizeof(tmp), "%s/", tmp_dir);
+    mkdir(tmp_dir, 0700);
+    const char *driver = getenv("APS5_GPU_DRIVER");
+    if (getenv("APS5_SYSTEM_VULKAN") != NULL || (driver != NULL && strcmp(driver, "system") == 0)) {
+        void *system = dlopen("libvulkan.so", RTLD_NOW);
+        LOG(ANDROID_LOG_INFO, "Vulkan: system driver %s", system != NULL ? "loaded" : dlerror());
+        fprintf(stderr, "[gpu] Vulkan driver: system (%s)\n", system != NULL ? "loaded" : "failed");
+        if (system != NULL) return system;
+    } else if (driver != NULL && driver[0] == '/' ) {
+        const char *library = getenv("APS5_GPU_DRIVER_LIB");
+        char custom_dir[PATH_MAX];
+        snprintf(custom_dir, sizeof(custom_dir), "%s/", driver);
+        void *custom = library != NULL ? adrenotools_open_libvulkan(RTLD_NOW, ADRENOTOOLS_DRIVER_CUSTOM, tmp, hook_dir, custom_dir, library, NULL, NULL) : NULL;
+        fprintf(stderr, "[gpu] Vulkan driver: custom %s/%s (%s)\n", driver, library != NULL ? library : "?", custom != NULL ? "loaded" : "failed, using built-in Turnip");
+        if (custom != NULL) return custom;
+        LOG(ANDROID_LOG_ERROR, "custom driver %s failed: %s", driver, dlerror());
+    }
+    void *handle = adrenotools_open_libvulkan(RTLD_NOW, ADRENOTOOLS_DRIVER_CUSTOM, tmp, hook_dir, hook_dir, "libvulkan_freedreno.so", NULL, NULL);
     if (handle == NULL) LOG(ANDROID_LOG_ERROR, "adrenotools_open_libvulkan failed: %s", dlerror());
+    else fprintf(stderr, "[gpu] Vulkan driver: built-in Turnip\n");
     return handle;
 }
 
@@ -262,7 +285,9 @@ int SDL_main(int argc, char **argv) {
         if (pthread_create(&thread, NULL, sampler, NULL) == 0) pthread_detach(thread);
     }
 
-    void *vulkan = open_vulkan(native_dir);
+    char adrenotools_tmp[PATH_MAX];
+    snprintf(adrenotools_tmp, sizeof(adrenotools_tmp), "%s/adrenotools-tmp", argv[3]);
+    void *vulkan = open_vulkan(native_dir, adrenotools_tmp);
     if (vulkan == NULL) return 6;
     // GPU на максимальной частоте (KGSL, без root): работа приходит рывками, и штатный регулятор
     // держал 525 МГц из 1100 — кадр ждал GPU. На титульнике 56-59 -> ровные 60 FPS. APS5_GPU_TURBO=0 — выкл.

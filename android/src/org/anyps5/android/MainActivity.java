@@ -1,6 +1,12 @@
 package org.anyps5.android;
 
 import android.app.Activity;
+import android.app.AlertDialog;
+import android.content.DialogInterface;
+import java.util.Locale;
+import java.util.zip.ZipEntry;
+import java.util.zip.ZipInputStream;
+import org.json.JSONObject;
 import android.content.Intent;
 import android.database.Cursor;
 import android.net.Uri;
@@ -26,6 +32,8 @@ import java.io.OutputStream;
 
 public final class MainActivity extends Activity {
     private static final int PICK_GAME_DIRECTORY = 10;
+    private static final int PICK_DRIVER_PACKAGE = 11;
+    private Button driverButton, gameLanguageButton, uiLanguageButton;
     private TextView status;
     private Button start;
 
@@ -47,22 +55,22 @@ public final class MainActivity extends Activity {
         root.addView(icon, iconSize);
         LinearLayout panel = new LinearLayout(this); panel.setOrientation(LinearLayout.VERTICAL); panel.setGravity(Gravity.CENTER_VERTICAL);
         TextView title = new TextView(this); title.setText("PvZ: Replanted"); title.setTextColor(0xfff1f8e9); title.setTextSize(28); title.setTypeface(android.graphics.Typeface.DEFAULT_BOLD); panel.addView(title);
-        TextView subtitle = new TextView(this); subtitle.setText("Порт с PS5 · AnyPS5 + box64 + Turnip"); subtitle.setTextColor(0xffa5d6a7); subtitle.setTextSize(12); panel.addView(subtitle);
+        TextView subtitle = new TextView(this); subtitle.setText(t("Порт с PS5 · AnyPS5 + box64 + Turnip", "PS5 port · AnyPS5 + box64 + Turnip")); subtitle.setTextColor(0xffa5d6a7); subtitle.setTextSize(12); panel.addView(subtitle);
         status = new TextView(this); status.setTextColor(0xffdcedc8); status.setTextSize(13); status.setPadding(0, (int)(8*dp), 0, (int)(8*dp)); panel.addView(status);
         LinearLayout actions = new LinearLayout(this); actions.setOrientation(LinearLayout.HORIZONTAL); actions.setGravity(Gravity.CENTER_VERTICAL);
-        start = new Button(this); start.setText("Импорт и запуск"); styleButton(start, 0xff43a047, 18);
+        start = new Button(this); start.setText(t("Импорт и запуск", "Import and play")); styleButton(start, 0xff43a047, 18);
         start.setOnClickListener(new View.OnClickListener() { @Override public void onClick(View v) { importAndStart(); } });
         LinearLayout.LayoutParams startSize = new LinearLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT); startSize.rightMargin = (int)(12*dp);
         actions.addView(start, startSize);
-        Button choose = new Button(this); choose.setText("Папка дампа"); styleButton(choose, 0xff2e5e32, 14);
+        Button choose = new Button(this); choose.setText(t("Папка дампа", "Dump folder")); styleButton(choose, 0xff2e5e32, 14);
         choose.setOnClickListener(new View.OnClickListener() { @Override public void onClick(View v) { chooseDirectory(); } }); actions.addView(choose);
         panel.addView(actions);
         LinearLayout options = new LinearLayout(this); options.setOrientation(LinearLayout.HORIZONTAL); options.setGravity(Gravity.CENTER_VERTICAL); options.setPadding(0, (int)(10*dp), 0, 0);
         final android.content.SharedPreferences touch = getSharedPreferences("touch_controls", MODE_PRIVATE);
-        CheckBox touchBox = option("Сенсорное управление", touch.getBoolean("visible", !TouchControlsView.hasPhysicalGamepad()));
+        CheckBox touchBox = option(t("Сенсорное управление", "Touch controls"), touch.getBoolean("visible", !TouchControlsView.hasPhysicalGamepad()));
         touchBox.setOnCheckedChangeListener(new CompoundButton.OnCheckedChangeListener() { @Override public void onCheckedChanged(CompoundButton b, boolean on) { touch.edit().putBoolean("visible", on).apply(); } });
         options.addView(touchBox);
-        CheckBox turboBox = option("Турбо GPU", launcherSetting("APS5_GPU_TURBO"));
+        CheckBox turboBox = option(t("Турбо GPU", "GPU turbo"), launcherSetting("APS5_GPU_TURBO"));
         turboBox.setOnCheckedChangeListener(new CompoundButton.OnCheckedChangeListener() { @Override public void onCheckedChanged(CompoundButton b, boolean on) { setLauncherSetting("APS5_GPU_TURBO", on); } });
         options.addView(turboBox);
         // Лимит кадров против нагрева: 60 (без лимита) → 45 → 30.
@@ -78,8 +86,219 @@ public final class MainActivity extends Activity {
         }});
         options.addView(fps);
         panel.addView(options);
+        // Драйвер GPU, язык игры, язык лаунчера.
+        LinearLayout more = new LinearLayout(this); more.setOrientation(LinearLayout.HORIZONTAL); more.setGravity(Gravity.CENTER_VERTICAL); more.setPadding(0, (int)(8*dp), 0, 0);
+        driverButton = new Button(this); styleButton(driverButton, 0xff2e5e32, 13);
+        driverButton.setOnClickListener(new View.OnClickListener() { @Override public void onClick(View v) { chooseDriver(); } });
+        gameLanguageButton = new Button(this); styleButton(gameLanguageButton, 0xff2e5e32, 13);
+        gameLanguageButton.setOnClickListener(new View.OnClickListener() { @Override public void onClick(View v) { chooseGameLanguage(); } });
+        uiLanguageButton = new Button(this); styleButton(uiLanguageButton, 0xff2e5e32, 13);
+        uiLanguageButton.setOnClickListener(new View.OnClickListener() { @Override public void onClick(View v) { chooseUiLanguage(); } });
+        for (Button button : new Button[] {driverButton, gameLanguageButton, uiLanguageButton}) {
+            LinearLayout.LayoutParams size = new LinearLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT); size.rightMargin = (int)(8*dp);
+            more.addView(button, size);
+        }
+        panel.addView(more);
+        refreshSettingButtons();
         root.addView(panel);
         setContentView(root); showStatus();
+    }
+
+
+    // ---- Язык лаунчера: "system" (по языку телефона), "ru", "en". ----
+    private String uiLanguage() { return getPreferences(MODE_PRIVATE).getString("ui_language", "system"); }
+    private boolean russian() {
+        final String chosen = uiLanguage();
+        if (chosen.equals("ru")) return true;
+        if (chosen.equals("en")) return false;
+        return Locale.getDefault().getLanguage().equals("ru");
+    }
+    private String t(String ru, String en) { return russian() ? ru : en; }
+    private String runtimeStatus() {
+        final String probe = nativeProbeRuntime();
+        return probe.startsWith("Box64 Android runtime") ? t("Box64 готов", "Box64 runtime ready") : probe;
+    }
+    private void chooseUiLanguage() {
+        final String[] values = {"system", "en", "ru"};
+        final String[] labels = {t("Как в системе", "System"), "English", "Русский"};
+        int current = java.util.Arrays.asList(values).indexOf(uiLanguage());
+        new AlertDialog.Builder(this).setTitle(t("Язык лаунчера", "Launcher language")).setSingleChoiceItems(labels, current, new DialogInterface.OnClickListener() {
+            @Override public void onClick(DialogInterface dialog, int which) {
+                getPreferences(MODE_PRIVATE).edit().putString("ui_language", values[which]).apply();
+                dialog.dismiss();
+                recreate();
+            }
+        }).show();
+    }
+
+    // ---- Язык игры: номер языка консоли PS5 (ANYPS5_LANGUAGE), "auto" — по языку телефона. ----
+    private static final int[] GAME_LANGUAGE_CODES = {1, 18, 8, 30, 4, 2, 22, 3, 20, 5, 6, 7, 17, 16, 19, 23, 24, 25, 26, 12, 13, 14, 15, 0, 9, 11, 10, 21, 27, 28, 29};
+    private static final String[] GAME_LANGUAGE_NAMES = {"English (US)", "English (UK)", "Русский", "Українська", "Deutsch", "Français", "Français (Canada)", "Español (España)", "Español (Latinoamérica)", "Italiano", "Nederlands", "Português (Portugal)", "Português (Brasil)", "Polski", "Türkçe", "Čeština", "Magyar", "Ελληνικά", "Română", "Suomi", "Svenska", "Dansk", "Norsk", "日本語", "한국어", "简体中文", "繁體中文", "العربية", "ไทย", "Tiếng Việt", "Bahasa Indonesia"};
+    private String gameLanguageSetting() { return getPreferences(MODE_PRIVATE).getString("game_language", "auto"); }
+    private static int consoleLanguageFor(Locale locale) {
+        final String language = locale.getLanguage(), country = locale.getCountry();
+        switch (language) {
+            case "ru": return 8; case "uk": return 30; case "de": return 4; case "it": return 5; case "nl": return 6;
+            case "pl": return 16; case "tr": return 19; case "cs": return 23; case "hu": return 24; case "el": return 25;
+            case "ro": return 26; case "fi": return 12; case "sv": return 13; case "da": return 14; case "nb": case "no": case "nn": return 15;
+            case "ja": return 0; case "ko": return 9; case "ar": return 21; case "th": return 27; case "vi": return 28; case "in": case "id": return 29;
+            case "fr": return country.equals("CA") ? 22 : 2;
+            case "es": return country.equals("ES") || country.isEmpty() ? 3 : 20;
+            case "pt": return country.equals("BR") ? 17 : 7;
+            case "zh": return country.equals("TW") || country.equals("HK") || country.equals("MO") ? 10 : 11;
+            case "en": return country.equals("GB") || country.equals("IE") || country.equals("AU") || country.equals("NZ") ? 18 : 1;
+            default: return 1;
+        }
+    }
+    private int gameLanguageCode() {
+        final String setting = gameLanguageSetting();
+        if (setting.equals("auto")) return consoleLanguageFor(Locale.getDefault());
+        try { return Integer.parseInt(setting); } catch (NumberFormatException e) { return 1; }
+    }
+    private String gameLanguageName(int code) {
+        for (int i = 0; i < GAME_LANGUAGE_CODES.length; i++) if (GAME_LANGUAGE_CODES[i] == code) return GAME_LANGUAGE_NAMES[i];
+        return "English (US)";
+    }
+    // Записывается перед каждым запуском: "как в системе" следует за языком телефона.
+    private void applyGameLanguage() { setLauncherValue("ANYPS5_LANGUAGE", Integer.toString(gameLanguageCode())); }
+    private void chooseGameLanguage() {
+        final String[] labels = new String[GAME_LANGUAGE_NAMES.length + 1];
+        labels[0] = t("Как в системе", "System") + " (" + gameLanguageName(consoleLanguageFor(Locale.getDefault())) + ")";
+        System.arraycopy(GAME_LANGUAGE_NAMES, 0, labels, 1, GAME_LANGUAGE_NAMES.length);
+        int current = 0;
+        if (!gameLanguageSetting().equals("auto")) for (int i = 0; i < GAME_LANGUAGE_CODES.length; i++) if (Integer.toString(GAME_LANGUAGE_CODES[i]).equals(gameLanguageSetting())) current = i + 1;
+        new AlertDialog.Builder(this).setTitle(t("Язык игры", "Game language")).setSingleChoiceItems(labels, current, new DialogInterface.OnClickListener() {
+            @Override public void onClick(DialogInterface dialog, int which) {
+                getPreferences(MODE_PRIVATE).edit().putString("game_language", which == 0 ? "auto" : Integer.toString(GAME_LANGUAGE_CODES[which - 1])).apply();
+                applyGameLanguage();
+                dialog.dismiss();
+                refreshSettingButtons();
+            }
+        }).show();
+    }
+
+    // ---- Драйвер GPU: встроенный Turnip, системный, или пакет adrenotools (zip с meta.json). ----
+    private File driversDir() { return new File(getFilesDir(), "drivers"); }
+    private static final class DriverPackage {
+        final File dir; final String name; final String library;
+        DriverPackage(File dir, String name, String library) { this.dir = dir; this.name = name; this.library = library; }
+    }
+    private static DriverPackage readDriver(File dir) {
+        String name = dir.getName(), library = null;
+        try {
+            final JSONObject meta = new JSONObject(new String(Files.readAllBytes(new File(dir, "meta.json").toPath()), "UTF-8"));
+            name = meta.optString("name", name);
+            final String version = meta.optString("driverVersion", "");
+            if (!version.isEmpty() && !name.contains(version)) name += " " + version;
+            library = meta.optString("libraryName", null);
+        } catch (Exception ignored) {}
+        if (library == null || !new File(dir, library).isFile()) {
+            final File[] files = dir.listFiles();
+            if (files != null) for (File file : files) if (file.getName().endsWith(".so") && file.getName().contains("vulkan")) library = file.getName();
+        }
+        return library != null && new File(dir, library).isFile() ? new DriverPackage(dir, name, library) : null;
+    }
+    private java.util.List<DriverPackage> installedDrivers() {
+        final java.util.List<DriverPackage> drivers = new java.util.ArrayList<>();
+        final File[] dirs = driversDir().listFiles();
+        if (dirs != null) for (File dir : dirs) { if (!dir.isDirectory()) continue; final DriverPackage driver = readDriver(dir); if (driver != null) drivers.add(driver); }
+        return drivers;
+    }
+    private String driverLabel() {
+        final String driver = launcherValue("APS5_GPU_DRIVER");
+        if (driver == null) return "Turnip";
+        if (driver.equals("system")) return t("Системный", "System");
+        final DriverPackage custom = readDriver(new File(driver));
+        return custom != null ? custom.name : "Turnip";
+    }
+    private void chooseDriver() {
+        final java.util.List<DriverPackage> drivers = installedDrivers();
+        final java.util.List<String> labels = new java.util.ArrayList<>();
+        labels.add(t("Turnip (встроенный)", "Turnip (built-in)"));
+        labels.add(t("Системный драйвер телефона", "Phone's system driver"));
+        for (DriverPackage driver : drivers) labels.add(driver.name);
+        labels.add(t("+ Добавить драйвер (.zip)", "+ Add a driver (.zip)"));
+        if (!drivers.isEmpty()) labels.add(t("Удалить драйвер…", "Remove a driver…"));
+        final String active = launcherValue("APS5_GPU_DRIVER");
+        int current = active == null ? 0 : active.equals("system") ? 1 : -1;
+        for (int i = 0; i < drivers.size(); i++) if (drivers.get(i).dir.getAbsolutePath().equals(active)) current = i + 2;
+        new AlertDialog.Builder(this).setTitle(t("Драйвер GPU", "GPU driver")).setSingleChoiceItems(labels.toArray(new String[0]), current, new DialogInterface.OnClickListener() {
+            @Override public void onClick(DialogInterface dialog, int which) {
+                dialog.dismiss();
+                if (which == 0) { setLauncherValue("APS5_GPU_DRIVER", null); setLauncherValue("APS5_GPU_DRIVER_LIB", null); }
+                else if (which == 1) { setLauncherValue("APS5_GPU_DRIVER", "system"); setLauncherValue("APS5_GPU_DRIVER_LIB", null); }
+                else if (which < drivers.size() + 2) {
+                    final DriverPackage driver = drivers.get(which - 2);
+                    setLauncherValue("APS5_GPU_DRIVER", driver.dir.getAbsolutePath()); setLauncherValue("APS5_GPU_DRIVER_LIB", driver.library);
+                } else if (which == drivers.size() + 2) {
+                    final Intent pick = new Intent(Intent.ACTION_OPEN_DOCUMENT);
+                    pick.addCategory(Intent.CATEGORY_OPENABLE);
+                    pick.setType("*/*");
+                    pick.putExtra(Intent.EXTRA_MIME_TYPES, new String[] {"application/zip", "application/x-zip-compressed", "application/octet-stream"});
+                    startActivityForResult(pick, PICK_DRIVER_PACKAGE);
+                    return;
+                } else {
+                    removeDriver(drivers);
+                    return;
+                }
+                refreshSettingButtons();
+            }
+        }).show();
+    }
+    private void removeDriver(final java.util.List<DriverPackage> drivers) {
+        final String[] labels = new String[drivers.size()];
+        for (int i = 0; i < labels.length; i++) labels[i] = drivers.get(i).name;
+        new AlertDialog.Builder(this).setTitle(t("Удалить драйвер", "Remove a driver")).setItems(labels, new DialogInterface.OnClickListener() {
+            @Override public void onClick(DialogInterface dialog, int which) {
+                final DriverPackage driver = drivers.get(which);
+                if (driver.dir.getAbsolutePath().equals(launcherValue("APS5_GPU_DRIVER"))) { setLauncherValue("APS5_GPU_DRIVER", null); setLauncherValue("APS5_GPU_DRIVER_LIB", null); }
+                clearDirectory(driver.dir);
+                refreshSettingButtons();
+            }
+        }).show();
+    }
+    // Распаковка пакета в files/drivers/<имя>; пути внутри архива не выходят за каталог пакета.
+    private void importDriver(final Uri uri) {
+        status.setText(t("Устанавливаю драйвер…", "Installing the driver…"));
+        new Thread(new Runnable() { @Override public void run() {
+            String error = null;
+            final File target = new File(driversDir(), "driver-" + System.currentTimeMillis());
+            try {
+                target.mkdirs();
+                final String root = target.getCanonicalPath() + File.separator;
+                try (InputStream in = getContentResolver().openInputStream(uri); ZipInputStream zip = new ZipInputStream(in)) {
+                    ZipEntry entry;
+                    final byte[] buffer = new byte[65536];
+                    while ((entry = zip.getNextEntry()) != null) {
+                        final File out = new File(target, entry.getName());
+                        if (!out.getCanonicalPath().startsWith(root)) throw new Exception("bad path in archive: " + entry.getName());
+                        if (entry.isDirectory()) { out.mkdirs(); continue; }
+                        out.getParentFile().mkdirs();
+                        try (OutputStream file = new FileOutputStream(out)) { int count; while ((count = zip.read(buffer)) > 0) file.write(buffer, 0, count); }
+                    }
+                }
+                final DriverPackage driver = readDriver(target);
+                if (driver == null) throw new Exception(t("в архиве нет библиотеки Vulkan (meta.json / libraryName)", "no Vulkan library in the archive (meta.json / libraryName)"));
+                setLauncherValue("APS5_GPU_DRIVER", target.getAbsolutePath());
+                setLauncherValue("APS5_GPU_DRIVER_LIB", driver.library);
+            } catch (Exception e) {
+                clearDirectory(target);
+                error = e.getMessage();
+            }
+            final String failure = error;
+            runOnUiThread(new Runnable() { @Override public void run() {
+                if (failure != null) status.setText(t("Драйвер не установлен: ", "Driver not installed: ") + failure);
+                else showStatus();
+                refreshSettingButtons();
+            }});
+        }}).start();
+    }
+
+    private void refreshSettingButtons() {
+        if (driverButton == null) return;
+        driverButton.setText("GPU: " + driverLabel());
+        gameLanguageButton.setText(t("Язык игры: ", "Game: ") + (gameLanguageSetting().equals("auto") ? t("системный", "system") + " (" + gameLanguageName(gameLanguageCode()) + ")" : gameLanguageName(gameLanguageCode())));
+        uiLanguageButton.setText(uiLanguage().equals("system") ? t("Язык: системный", "Language: system") : uiLanguage().equals("ru") ? "Язык: Русский" : "Language: English");
     }
 
     private void styleButton(Button button, int color, int textSize) {
@@ -111,7 +330,7 @@ public final class MainActivity extends Activity {
             if (value != null) lines.add(name + "=" + value);
             launcherEnv().getParentFile().mkdirs();
             Files.write(launcherEnv().toPath(), lines);
-        } catch (Exception e) { status.setText("Не удалось сохранить настройку: " + e.getMessage()); }
+        } catch (Exception e) { status.setText(t("Не удалось сохранить настройку: ", "Could not save the setting: ") + e.getMessage()); }
     }
 
     // После обновления APK рантайм в game/libs и game/x64lib устарел (нативная часть уже новая): он
@@ -131,13 +350,13 @@ public final class MainActivity extends Activity {
         String saved = selectedTree();
         File gameDir = new File(getFilesDir(), "game");
         if (new File(gameDir, "app.elf").isFile() && new File(gameDir, "libs").isDirectory()) {
-            status.setText("Игра готова\n" + nativeProbeRuntime());
-            start.setText("Играть"); start.setEnabled(true); return;
+            status.setText(t("Игра готова", "Game is ready") + "\n" + runtimeStatus());
+            start.setText(t("Играть", "Play")); start.setEnabled(true); return;
         }
         boolean dumpReady = new File(gameDir, "eboot.bin").isFile();
-        String source = dumpReady ? "Дамп уже находится в корневой папке игры; повторное копирование не требуется" :
-                (saved == null ? "Выберите папку дампа (где лежит eboot.bin)" : "Папка: " + Uri.parse(saved).getLastPathSegment());
-        status.setText(source + "\n" + nativeProbeRuntime());
+        String source = dumpReady ? t("Дамп уже в папке игры; копировать заново не нужно", "The dump is already in the game folder; no copy needed") :
+                (saved == null ? t("Выберите папку дампа (где лежит eboot.bin)", "Pick the dump folder (the one with eboot.bin)") : t("Папка: ", "Folder: ") + Uri.parse(saved).getLastPathSegment());
+        status.setText(source + "\n" + runtimeStatus());
         start.setEnabled(dumpReady || saved != null);
     }
     private void chooseDirectory() {
@@ -147,6 +366,10 @@ public final class MainActivity extends Activity {
     }
     @Override protected void onActivityResult(int request, int result, Intent data) {
         super.onActivityResult(request, result, data);
+        if (request == PICK_DRIVER_PACKAGE && result == RESULT_OK && data != null && data.getData() != null) {
+            importDriver(data.getData());
+            return;
+        }
         if (request == PICK_GAME_DIRECTORY && result == RESULT_OK && data != null && data.getData() != null) {
             Uri uri = data.getData();
             int flags = data.getFlags() & (Intent.FLAG_GRANT_READ_URI_PERMISSION | Intent.FLAG_GRANT_WRITE_URI_PERMISSION);
@@ -161,17 +384,18 @@ public final class MainActivity extends Activity {
         if (new File(game, "app.elf").isFile() && new File(game, "libs").isDirectory()) {
             // Готовая раскладка (app.elf + libs): запуск без импорта, рантайм обновляется после обновления APK.
             start.setEnabled(false);
-            status.setText("Проверяю рантайм…");
+            status.setText(t("Проверяю рантайм…", "Checking the runtime…"));
             new Thread(new Runnable() { @Override public void run() {
                 try {
                     refreshRuntimeIfUpdated(game);
                     runOnUiThread(new Runnable() { @Override public void run() {
                         start.setEnabled(true); showStatus();
+                        applyGameLanguage();
                         startActivity(new Intent(MainActivity.this, GameActivity.class));
                     }});
                 } catch (final Exception e) {
                     runOnUiThread(new Runnable() { @Override public void run() {
-                        status.setText("Не удалось обновить рантайм:\n" + e.getMessage()); start.setEnabled(true);
+                        status.setText(t("Не удалось обновить рантайм:\n", "Could not update the runtime:\n") + e.getMessage()); start.setEnabled(true);
                     }});
                 }
             }}).start();
@@ -180,7 +404,7 @@ public final class MainActivity extends Activity {
         final boolean dumpAlreadyPresent = new File(game, "eboot.bin").isFile();
         if (!dumpAlreadyPresent && value == null) return;
         start.setEnabled(false);
-        status.setText(dumpAlreadyPresent ? "Дамп найден в корневой папке игры; использую имеющиеся файлы…" : "Копирую папку игры… Это может занять несколько минут.");
+        status.setText(dumpAlreadyPresent ? t("Дамп найден в папке игры; использую имеющиеся файлы…", "Dump found in the game folder; using the existing files…") : t("Копирую папку игры… Это может занять несколько минут.", "Copying the game folder… This can take a few minutes."));
         new Thread(new Runnable() { @Override public void run() {
             try {
                 if (!dumpAlreadyPresent) {
@@ -200,10 +424,10 @@ public final class MainActivity extends Activity {
                 if (!self.isFile()) throw new Exception("В выбранной папке не найден eboot.bin. Выбери сам каталог дампа.");
                 File executable = new File(game, "app.elf");
                 if (!executable.isFile()) {
-                    statusOnUi("Извлекаю ELF из eboot.bin…");
+                    statusOnUi(t("Извлекаю ELF из eboot.bin…", "Extracting the ELF from eboot.bin…"));
                     extractSelf(self, new File(game, "eboot.elf"));
                     extractSelfModules(game);
-                    statusOnUi("Запускаю AnyPS5 relinker…");
+                    statusOnUi(t("Запускаю AnyPS5 relinker…", "Running the AnyPS5 relinker…"));
                     runRelinker(game);
                 }
                 if (!executable.isFile()) throw new Exception("Relinker завершился, но app.elf не создан");
@@ -215,11 +439,12 @@ public final class MainActivity extends Activity {
                 copyPackagedRuntime("runtime/x64lib", new File(game, "x64lib"));
                 Files.write(new File(game, ".runtime-stamp").toPath(), Long.toString(getPackageManager().getPackageInfo(getPackageName(), 0).lastUpdateTime).getBytes());
                 runOnUiThread(new Runnable() { @Override public void run() {
-                    startActivity(new Intent(MainActivity.this, GameActivity.class));
+                    applyGameLanguage();
+                        startActivity(new Intent(MainActivity.this, GameActivity.class));
                 }});
             } catch (final Exception e) {
                 runOnUiThread(new Runnable() { @Override public void run() {
-                    status.setText("Импорт не удался:\n" + e.getMessage()); start.setEnabled(true);
+                    status.setText(t("Импорт не удался:\n", "Import failed:\n") + e.getMessage()); start.setEnabled(true);
                 }});
             }
         }}).start();
