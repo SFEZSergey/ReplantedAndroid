@@ -24,26 +24,35 @@ Get the APK from [Releases](https://github.com/SFEZSergey/ReplantedAndroid/relea
 ## Installing and running
 
 1. Install the APK.
-2. In the launcher tap **"Папка дампа"** (dump folder) and pick the game's dump folder (the one with `eboot.bin`).
-3. Tap **"Импорт и запуск"** (import and run) — the launcher copies the game into the app's private storage,
-   extracts the ELF and prepares the runtime. After that the button reads **"Играть"** (play).
+2. In the launcher tap **Dump folder** and pick the game's dump folder (the one with `eboot.bin`).
+3. Tap **Import and play** — the launcher copies the game into the app's private storage, extracts the ELF and
+   prepares the runtime. After that the button reads **Play**.
 
-Launcher options:
-- **Touch controls** — a virtual gamepad over the game (the eye button at the top hides it). Hidden by default when a physical gamepad is connected.
-- **GPU turbo** — maximum GPU clocks (faster, but the phone heats up more).
-- **FPS: 60 / 45 / 30** — frame-rate limit against overheating.
-- **GPU driver** — the built-in Turnip, the phone's system Vulkan driver, or your own driver package
-  (an adrenotools `.zip` with `meta.json`, as used by Yuzu/Eden/Winlator). If the chosen driver fails to load,
-  the built-in Turnip is used.
-- **Game language** — the languages the game is translated into (read from the dump's `param.json`; for PvZ:
-  English, French, German, Spanish, Japanese, Portuguese (Brazil)), or "System" — the phone's language when the
-  game has it, English otherwise. Other PS5 languages are listed separately.
-- **Language** — the launcher's own language: system, English or Russian.
-- **GPU driver** — the built-in Turnip, the phone's system Vulkan driver, or your own driver package
-  (an adrenotools `.zip` with `meta.json`, as used by Yuzu/Eden/Winlator). If the chosen driver fails to load,
-  the built-in Turnip is used.
-- **Game language** — any of the 31 PS5 console languages, or "System" (follows the phone's language).
-- **Language** — the launcher's own language: system, English or Russian.
+**⚙ Settings**:
+- *Graphics*
+  - **GPU driver** — the built-in Turnip, the phone's system Vulkan driver, or your own driver package
+    (an adrenotools `.zip` with `meta.json`, as used by Yuzu/Eden/Winlator). If the chosen driver fails to load,
+    the built-in Turnip is used.
+  - **GPU turbo** — maximum GPU clocks (faster, but the phone heats up more).
+  - **Frame limit 60 / 45 / 30** — against overheating.
+  - **Resolution** — *Auto* (default) uses the screen's proportions but no more than the game's own 1080p frame:
+    on a 1440p phone the display hardware does the upscaling instead of the GPU (less load and heat).
+    *Screen* — the full panel resolution; *720p* — for weak phones.
+  - **Image on a wide screen** — how the 16:9 picture fills a wider phone screen: *Fit* (black bars), *Fill*
+    (cropped edges) or *Stretch*.
+- *Controls*
+  - **Touch controls** — a virtual gamepad over the game (the eye button at the top hides it). Hidden by default
+    when a physical gamepad is connected.
+  - **Layout editor** — drag the controls anywhere, resize one or all of them, hide or add buttons (right stick,
+    R3), set the opacity, reset to default.
+- *Language*
+  - **Game language** — the languages the game is translated into (read from the dump's `param.json`; for PvZ:
+    English, French, German, Spanish, Japanese, Portuguese (Brazil)), or *System* — the phone's language when the
+    game has it, English otherwise. Other PS5 languages are listed separately.
+  - **Launcher language** — system, English or Russian.
+- *Help*
+  - **Logs** — saves a zip with the game log, the app's logcat, device info and the reason of the last crash
+    (no root needed). Attach it to a [bug report](https://github.com/SFEZSergey/ReplantedAndroid/issues/new/choose).
 
 Fine-tuning is done in `env.txt` inside the game folder (`files/game/env.txt`), one `NAME=value` per line
 (for example `APS5_FPS_LIMIT=45`, `APS5_NO_WORKER_AFFINITY=1`).

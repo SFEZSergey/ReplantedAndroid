@@ -5,6 +5,7 @@
         <activity android:name=".MainActivity" android:configChanges="keyboardHidden|orientation|screenSize" android:exported="true" android:screenOrientation="landscape">
             <intent-filter><action android:name="android.intent.action.MAIN" /><category android:name="android.intent.category.LAUNCHER" /></intent-filter>
         </activity>
+        <activity android:name=".TouchLayoutActivity" android:configChanges="keyboardHidden|orientation|screenSize|screenLayout" android:exported="false" android:screenOrientation="landscape" android:theme="@android:style/Theme.Material.NoActionBar" />
         <activity android:name=".GameActivity" android:configChanges="keyboardHidden|orientation|screenSize|smallestScreenSize|screenLayout|uiMode|keyboard|navigation|locale|layoutDirection" android:exported="false" android:screenOrientation="landscape" android:theme="@android:style/Theme.Material.NoActionBar" />
     </application>
 </manifest>

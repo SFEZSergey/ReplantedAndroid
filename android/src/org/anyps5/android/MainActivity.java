@@ -65,33 +65,164 @@ public final class MainActivity extends Activity {
         actions.addView(start, startSize);
         Button choose = new Button(this); choose.setText(t("Папка дампа", "Dump folder")); styleButton(choose, 0xff2e5e32, 14);
         choose.setOnClickListener(new View.OnClickListener() { @Override public void onClick(View v) { chooseDirectory(); } }); actions.addView(choose);
-        Button logs = new Button(this); logs.setText(t("Логи", "Logs")); styleButton(logs, 0xff2e5e32, 14);
-        logs.setOnClickListener(new View.OnClickListener() { @Override public void onClick(View v) { chooseLogsTarget(); } });
-        LinearLayout.LayoutParams logsSize = new LinearLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT); logsSize.leftMargin = (int)(12*dp);
-        actions.addView(logs, logsSize);
+        Button settings = new Button(this); settings.setText(t("⚙ Настройки", "⚙ Settings")); styleButton(settings, 0xff2e5e32, 14);
+        settings.setOnClickListener(new View.OnClickListener() { @Override public void onClick(View v) { showSettings(true); } });
+        LinearLayout.LayoutParams settingsSize = new LinearLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT); settingsSize.leftMargin = (int)(12*dp);
+        actions.addView(settings, settingsSize);
         panel.addView(actions);
-        LinearLayout options = new LinearLayout(this); options.setOrientation(LinearLayout.HORIZONTAL); options.setGravity(Gravity.CENTER_VERTICAL); options.setPadding(0, (int)(10*dp), 0, 0);
-        final android.content.SharedPreferences touch = getSharedPreferences("touch_controls", MODE_PRIVATE);
-        CheckBox touchBox = option(t("Сенсорное управление", "Touch controls"), touch.getBoolean("visible", !TouchControlsView.hasPhysicalGamepad()));
-        touchBox.setOnCheckedChangeListener(new CompoundButton.OnCheckedChangeListener() { @Override public void onCheckedChanged(CompoundButton b, boolean on) { touch.edit().putBoolean("visible", on).apply(); } });
-        options.addView(touchBox);
-        CheckBox turboBox = option(t("Турбо GPU", "GPU turbo"), launcherSetting("APS5_GPU_TURBO"));
+        root.addView(panel);
+        homeView = root;
+        settingsView = buildSettings();
+        loadBackground();
+        showSettings(state != null && state.getBoolean("settings", false));
+        showStatus();
+    }
+
+    // ---- Фон: размытая обложка игры (sce_sys/pic0.png из импортированного дампа; до импорта — иконка). ----
+    private void loadBackground() {
+        new Thread(new Runnable() { @Override public void run() {
+            final android.graphics.Bitmap blurred = blurredCover();
+            if (blurred == null) return;
+            runOnUiThread(new Runnable() { @Override public void run() {
+                homeView.setBackground(backgroundDrawable(blurred));
+                settingsView.setBackground(backgroundDrawable(blurred));
+            } });
+        } }).start();
+    }
+
+    private android.graphics.drawable.Drawable backgroundDrawable(android.graphics.Bitmap blurred) {
+        android.graphics.drawable.BitmapDrawable image = new android.graphics.drawable.BitmapDrawable(getResources(), blurred);
+        image.setFilterBitmap(true);
+        // Затемнение, чтобы текст читался.
+        android.graphics.drawable.GradientDrawable shade = new android.graphics.drawable.GradientDrawable(android.graphics.drawable.GradientDrawable.Orientation.LEFT_RIGHT, new int[] {0xb0081a0b, 0x80081a0b, 0xb0081a0b});
+        return new android.graphics.drawable.LayerDrawable(new android.graphics.drawable.Drawable[] {image, shade});
+    }
+
+    private android.graphics.Bitmap blurredCover() {
+        try {
+            android.graphics.Bitmap source = null;
+            for (String path : new String[] {"game/app0/sce_sys/pic0.png", "game/sce_sys/pic0.png", "game/app0/sce_sys/pic1.png"}) {
+                File file = new File(getFilesDir(), path);
+                if (!file.isFile()) continue;
+                android.graphics.BitmapFactory.Options bounds = new android.graphics.BitmapFactory.Options(); bounds.inJustDecodeBounds = true;
+                android.graphics.BitmapFactory.decodeFile(file.getPath(), bounds);
+                android.graphics.BitmapFactory.Options options = new android.graphics.BitmapFactory.Options();
+                options.inSampleSize = Math.max(1, Integer.highestOneBit(Math.max(1, bounds.outWidth / 640)));
+                source = android.graphics.BitmapFactory.decodeFile(file.getPath(), options);
+                if (source != null) break;
+            }
+            if (source == null) {
+                final int id = getResources().getIdentifier("pvz_icon", "drawable", getPackageName());
+                if (id != 0) source = android.graphics.BitmapFactory.decodeResource(getResources(), id);
+            }
+            if (source == null) return null;
+            // Обрезка под пропорции экрана, уменьшение до 320 px и лёгкое размытие: картинка узнаётся, но не отвлекает.
+            android.util.DisplayMetrics metrics = new android.util.DisplayMetrics();
+            getWindowManager().getDefaultDisplay().getRealMetrics(metrics);
+            final float aspect = (float) Math.max(metrics.widthPixels, metrics.heightPixels) / Math.max(1, Math.min(metrics.widthPixels, metrics.heightPixels));
+            int cropWidth = source.getWidth(), cropHeight = Math.round(cropWidth / aspect);
+            if (cropHeight > source.getHeight()) { cropHeight = source.getHeight(); cropWidth = Math.round(cropHeight * aspect); }
+            final int width = 320, height = Math.max(1, Math.round(width / aspect));
+            android.graphics.Bitmap small = android.graphics.Bitmap.createBitmap(width, height, android.graphics.Bitmap.Config.ARGB_8888);
+            android.graphics.Canvas canvas = new android.graphics.Canvas(small);
+            final int x = (source.getWidth() - cropWidth) / 2, y = (source.getHeight() - cropHeight) / 2;
+            canvas.drawBitmap(source, new android.graphics.Rect(x, y, x + cropWidth, y + cropHeight), new android.graphics.Rect(0, 0, width, height), new android.graphics.Paint(android.graphics.Paint.FILTER_BITMAP_FLAG));
+            source.recycle();
+            int[] pixels = new int[width * height];
+            small.getPixels(pixels, 0, width, 0, 0, width, height);
+            for (int pass = 0; pass < 2; pass++) pixels = boxBlur(pixels, width, height, 2);
+            small.setPixels(pixels, 0, width, 0, 0, width, height);
+            return small;
+        } catch (Throwable e) {
+            return null;
+        }
+    }
+
+    // Размытие прямоугольником по строкам и столбцам (с прижатием к краям).
+    private static int[] boxBlur(int[] in, int width, int height, int radius) {
+        int[] tmp = new int[in.length], out = new int[in.length];
+        for (int pass = 0; pass < 2; pass++) {
+            final int[] src = pass == 0 ? in : tmp, dst = pass == 0 ? tmp : out;
+            final int lines = pass == 0 ? height : width, length = pass == 0 ? width : height;
+            for (int line = 0; line < lines; line++) {
+                for (int i = 0; i < length; i++) {
+                    int r = 0, g = 0, b = 0, n = 0;
+                    for (int k = -radius; k <= radius; k++) {
+                        final int j = Math.max(0, Math.min(length - 1, i + k));
+                        final int c = pass == 0 ? src[line * width + j] : src[j * width + line];
+                        r += (c >> 16) & 0xff; g += (c >> 8) & 0xff; b += c & 0xff; n++;
+                    }
+                    final int color = 0xff000000 | (r / n) << 16 | (g / n) << 8 | (b / n);
+                    if (pass == 0) dst[line * width + i] = color; else dst[i * width + line] = color;
+                }
+            }
+        }
+        return out;
+    }
+
+    // ---- Вкладка «Настройки» ----
+    private View homeView, settingsView;
+    private boolean settingsShown;
+
+    private void showSettings(boolean shown) {
+        settingsShown = shown;
+        setContentView(shown ? settingsView : homeView);
+        if (shown) refreshSettingButtons();
+    }
+
+    @Override public void onBackPressed() {
+        if (settingsShown) showSettings(false);
+        else super.onBackPressed();
+    }
+
+    @Override protected void onSaveInstanceState(Bundle out) {
+        super.onSaveInstanceState(out);
+        out.putBoolean("settings", settingsShown);
+    }
+
+    // Сообщение и на главном экране, и всплывающее (во вкладке настроек строки статуса нет).
+    private void notice(String text) {
+        status.setText(text);
+        android.widget.Toast.makeText(this, text, android.widget.Toast.LENGTH_LONG).show();
+    }
+
+    private View buildSettings() {
+        final float dp = getResources().getDisplayMetrics().density;
+        android.widget.ScrollView scroll = new android.widget.ScrollView(this);
+        scroll.setBackground(new android.graphics.drawable.GradientDrawable(android.graphics.drawable.GradientDrawable.Orientation.TL_BR, new int[] {0xff1e4620, 0xff0f2a14}));
+        LinearLayout list = new LinearLayout(this); list.setOrientation(LinearLayout.VERTICAL);
+        list.setPadding((int)(32*dp), (int)(12*dp), (int)(32*dp), (int)(24*dp));
+        scroll.addView(list);
+        LinearLayout header = new LinearLayout(this); header.setGravity(Gravity.CENTER_VERTICAL);
+        Button back = new Button(this); back.setText("←"); styleButton(back, 0xff2e5e32, 18);
+        back.setOnClickListener(new View.OnClickListener() { @Override public void onClick(View v) { showSettings(false); } });
+        header.addView(back);
+        TextView title = new TextView(this); title.setText(t("Настройки", "Settings")); title.setTextColor(0xfff1f8e9); title.setTextSize(24); title.setTypeface(android.graphics.Typeface.DEFAULT_BOLD);
+        title.setPadding((int)(16*dp), 0, 0, 0);
+        header.addView(title);
+        list.addView(header);
+
+        section(list, t("Графика", "Graphics"));
+        driverButton = new Button(this);
+        driverButton.setOnClickListener(new View.OnClickListener() { @Override public void onClick(View v) { chooseDriver(); } });
+        row(list, t("Драйвер GPU", "GPU driver"), driverButton);
+        CheckBox turboBox = option("", launcherSetting("APS5_GPU_TURBO"));
         turboBox.setOnCheckedChangeListener(new CompoundButton.OnCheckedChangeListener() { @Override public void onCheckedChanged(CompoundButton b, boolean on) { setLauncherSetting("APS5_GPU_TURBO", on); } });
-        options.addView(turboBox);
+        row(list, t("Турбо GPU (держит частоты GPU высокими; больше нагрев)", "GPU turbo (keeps GPU clocks high; more heat)"), turboBox);
         // Лимит кадров против нагрева: 60 (без лимита) → 45 → 30.
-        final Button fps = new Button(this); styleButton(fps, 0xff2e5e32, 13);
+        final Button fps = new Button(this);
         final String[] limits = {"60", "45", "30"};
         String saved = launcherValue("APS5_FPS_LIMIT"); if (saved == null) saved = "60";
-        fps.setText("FPS: " + saved);
+        fps.setText(saved + " FPS");
         fps.setOnClickListener(new View.OnClickListener() { @Override public void onClick(View v) {
             String current = launcherValue("APS5_FPS_LIMIT"); if (current == null) current = "60";
             int next = 0; for (int i = 0; i < limits.length; i++) if (limits[i].equals(current)) next = (i + 1) % limits.length;
             setLauncherValue("APS5_FPS_LIMIT", limits[next].equals("60") ? null : limits[next]);
-            fps.setText("FPS: " + limits[next]);
+            fps.setText(limits[next] + " FPS");
         }});
-        options.addView(fps);
+        row(list, t("Лимит кадров (45 — меньше нагрев)", "Frame limit (45 = less heat)"), fps);
         // Разрешение вывода: авто — пропорции экрана, не выше кадра игры (1080p); экран — полное разрешение панели; 720p.
-        final Button resolution = new Button(this); styleButton(resolution, 0xff2e5e32, 13);
+        final Button resolution = new Button(this);
         final String[] resolutions = {"auto", "native", "720"};
         resolution.setText(resolutionLabel(launcherValue("APS5_OUTPUT_RES")));
         resolution.setOnClickListener(new View.OnClickListener() { @Override public void onClick(View v) {
@@ -100,10 +231,9 @@ public final class MainActivity extends Activity {
             setLauncherValue("APS5_OUTPUT_RES", next == 0 ? null : resolutions[next]);
             resolution.setText(resolutionLabel(launcherValue("APS5_OUTPUT_RES")));
         }});
-        LinearLayout.LayoutParams resolutionSize = new LinearLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT); resolutionSize.leftMargin = (int)(8*dp);
-        options.addView(resolution, resolutionSize);
+        row(list, t("Разрешение", "Resolution"), resolution);
         // Вписывание кадра 16:9 в экран: с полосами → заполнить (обрезка краёв) → растянуть.
-        final Button scale = new Button(this); styleButton(scale, 0xff2e5e32, 13);
+        final Button scale = new Button(this);
         final String[] scales = {"fit", "fill", "stretch"};
         scale.setText(scaleLabel(launcherValue("APS5_SCALE_MODE")));
         scale.setOnClickListener(new View.OnClickListener() { @Override public void onClick(View v) {
@@ -112,25 +242,58 @@ public final class MainActivity extends Activity {
             setLauncherValue("APS5_SCALE_MODE", next == 0 ? null : scales[next]);
             scale.setText(scaleLabel(launcherValue("APS5_SCALE_MODE")));
         }});
-        LinearLayout.LayoutParams scaleSize = new LinearLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT); scaleSize.leftMargin = (int)(8*dp);
-        options.addView(scale, scaleSize);
-        panel.addView(options);
-        // Драйвер GPU, язык игры, язык лаунчера.
-        LinearLayout more = new LinearLayout(this); more.setOrientation(LinearLayout.HORIZONTAL); more.setGravity(Gravity.CENTER_VERTICAL); more.setPadding(0, (int)(8*dp), 0, 0);
-        driverButton = new Button(this); styleButton(driverButton, 0xff2e5e32, 13);
-        driverButton.setOnClickListener(new View.OnClickListener() { @Override public void onClick(View v) { chooseDriver(); } });
-        gameLanguageButton = new Button(this); styleButton(gameLanguageButton, 0xff2e5e32, 13);
+        row(list, t("Картинка на широком экране", "Image on a wide screen"), scale);
+
+        section(list, t("Управление", "Controls"));
+        final android.content.SharedPreferences touch = getSharedPreferences("touch_controls", MODE_PRIVATE);
+        CheckBox touchBox = option("", touch.getBoolean("visible", !TouchControlsView.hasPhysicalGamepad()));
+        touchBox.setOnCheckedChangeListener(new CompoundButton.OnCheckedChangeListener() { @Override public void onCheckedChanged(CompoundButton b, boolean on) { touch.edit().putBoolean("visible", on).apply(); } });
+        row(list, t("Сенсорное управление", "Touch controls"), touchBox);
+        Button editLayout = new Button(this); editLayout.setText(t("Изменить…", "Edit…"));
+        editLayout.setOnClickListener(new View.OnClickListener() { @Override public void onClick(View v) { startActivity(new Intent(MainActivity.this, TouchLayoutActivity.class)); } });
+        row(list, t("Раскладка: положение, размер, кнопки, правый стик", "Layout: position, size, buttons, right stick"), editLayout);
+
+        section(list, t("Язык", "Language"));
+        gameLanguageButton = new Button(this);
         gameLanguageButton.setOnClickListener(new View.OnClickListener() { @Override public void onClick(View v) { chooseGameLanguage(); } });
-        uiLanguageButton = new Button(this); styleButton(uiLanguageButton, 0xff2e5e32, 13);
+        row(list, t("Язык игры", "Game language"), gameLanguageButton);
+        uiLanguageButton = new Button(this);
         uiLanguageButton.setOnClickListener(new View.OnClickListener() { @Override public void onClick(View v) { chooseUiLanguage(); } });
-        for (Button button : new Button[] {driverButton, gameLanguageButton, uiLanguageButton}) {
-            LinearLayout.LayoutParams size = new LinearLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT); size.rightMargin = (int)(8*dp);
-            more.addView(button, size);
-        }
-        panel.addView(more);
-        refreshSettingButtons();
-        root.addView(panel);
-        setContentView(root); showStatus();
+        row(list, t("Язык лаунчера", "Launcher language"), uiLanguageButton);
+
+        section(list, t("Помощь", "Help"));
+        Button logs = new Button(this); logs.setText(t("Сохранить…", "Save…"));
+        logs.setOnClickListener(new View.OnClickListener() { @Override public void onClick(View v) { chooseLogsTarget(); } });
+        row(list, t("Логи для отчёта об ошибке (zip)", "Logs for a bug report (zip)"), logs);
+        Button report = new Button(this); report.setText("GitHub");
+        report.setOnClickListener(new View.OnClickListener() { @Override public void onClick(View v) {
+            try { startActivity(new Intent(Intent.ACTION_VIEW, Uri.parse("https://github.com/SFEZSergey/ReplantedAndroid/issues"))); } catch (Exception e) { notice(e.toString()); }
+        }});
+        row(list, t("Сообщить об ошибке", "Report a problem"), report);
+        String version = "";
+        try { version = getPackageManager().getPackageInfo(getPackageName(), 0).versionName; } catch (Exception ignored) {}
+        TextView about = new TextView(this); about.setText("PvZ: Replanted " + version + " · AnyPS5 + box64 + Turnip"); about.setTextColor(0xff81a784); about.setTextSize(12);
+        about.setPadding(0, (int)(16*dp), 0, 0);
+        list.addView(about);
+        return scroll;
+    }
+
+    private void section(LinearLayout list, String name) {
+        final float dp = getResources().getDisplayMetrics().density;
+        TextView label = new TextView(this); label.setText(name); label.setTextColor(0xffa5d6a7); label.setTextSize(14); label.setTypeface(android.graphics.Typeface.DEFAULT_BOLD);
+        label.setPadding(0, (int)(18*dp), 0, (int)(4*dp));
+        list.addView(label);
+    }
+
+    private void row(LinearLayout list, String name, View control) {
+        final float dp = getResources().getDisplayMetrics().density;
+        LinearLayout line = new LinearLayout(this); line.setGravity(Gravity.CENTER_VERTICAL); line.setPadding(0, (int)(4*dp), 0, (int)(4*dp));
+        TextView label = new TextView(this); label.setText(name); label.setTextColor(0xffdcedc8); label.setTextSize(15);
+        line.addView(label, new LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f));
+        if (control instanceof CheckBox) ((CheckBox) control).setPadding(0, 0, 0, 0);
+        else if (control instanceof Button) styleButton((Button) control, 0xff2e5e32, 14);
+        line.addView(control);
+        list.addView(line);
     }
 
 
@@ -377,9 +540,9 @@ public final class MainActivity extends Activity {
 
     private void refreshSettingButtons() {
         if (driverButton == null) return;
-        driverButton.setText("GPU: " + driverLabel());
-        gameLanguageButton.setText(t("Язык игры: ", "Game: ") + (gameLanguageSetting().equals("auto") ? t("системный", "system") + " (" + gameLanguageName(gameLanguageCode()) + ")" : gameLanguageName(gameLanguageCode())));
-        uiLanguageButton.setText(uiLanguage().equals("system") ? t("Язык: системный", "Language: system") : uiLanguage().equals("ru") ? "Язык: Русский" : "Language: English");
+        driverButton.setText(driverLabel());
+        gameLanguageButton.setText(gameLanguageSetting().equals("auto") ? t("Как в системе", "System") + " (" + gameLanguageName(gameLanguageCode()) + ")" : gameLanguageName(gameLanguageCode()));
+        uiLanguageButton.setText(uiLanguage().equals("system") ? t("Системный", "System") : uiLanguage().equals("ru") ? "Русский" : "English");
     }
 
     private void styleButton(Button button, int color, int textSize) {
@@ -411,7 +574,7 @@ public final class MainActivity extends Activity {
             if (value != null) lines.add(name + "=" + value);
             launcherEnv().getParentFile().mkdirs();
             Files.write(launcherEnv().toPath(), lines);
-        } catch (Exception e) { status.setText(t("Не удалось сохранить настройку: ", "Could not save the setting: ") + e.getMessage()); }
+        } catch (Exception e) { notice(t("Не удалось сохранить настройку: ", "Could not save the setting: ") + e.getMessage()); }
     }
 
     // После обновления APK рантайм в game/libs и game/x64lib устарел (нативная часть уже новая): он
@@ -464,9 +627,9 @@ public final class MainActivity extends Activity {
     }
 
     private String resolutionLabel(String value) {
-        if ("native".equals(value)) return t("Экран: ", "Res: ") + displaySize(0);
-        if ("720".equals(value)) return t("Экран: ", "Res: ") + displaySize(720);
-        return t("Экран: авто ", "Res: auto ") + displaySize(1080);
+        if ("native".equals(value)) return t("Экран ", "Screen ") + displaySize(0);
+        if ("720".equals(value)) return "720p " + displaySize(720);
+        return t("Авто ", "Auto ") + displaySize(1080);
     }
 
     // Размер вывода в альбомной ориентации: экран, уменьшенный до заданной высоты (0 — без уменьшения).
@@ -479,9 +642,9 @@ public final class MainActivity extends Activity {
     }
 
     private String scaleLabel(String value) {
-        if ("fill".equals(value)) return t("Заполнить", "Fill");
-        if ("stretch".equals(value)) return t("Растянуть", "Stretch");
-        return t("С полосами", "Fit");
+        if ("fill".equals(value)) return t("Заполнить (обрезает края)", "Fill (crops edges)");
+        if ("stretch".equals(value)) return t("Растянуть (искажает)", "Stretch (distorts)");
+        return t("Целиком, с полосами", "Fit, with bars");
     }
 
     // Логи для отчёта о вылете (на телефонах без root папка приложения закрыта): zip с box64.log, relinker.log,
@@ -522,12 +685,12 @@ public final class MainActivity extends Activity {
                     }
                     zip.putNextEntry(new ZipEntry("exit-reasons.txt")); zip.write(exits.toString().getBytes("UTF-8")); zip.closeEntry();
                 }
-                message = t("Логи сохранены. Отправьте этот zip-файл разработчику.", "Logs saved. Send this zip file to the developer.");
+                message = t("Логи сохранены. Приложите zip к отчёту об ошибке.", "Logs saved. Attach the zip to a bug report.");
             } catch (Exception e) {
                 message = t("Не удалось сохранить логи: ", "Could not save logs: ") + e;
             }
             final String text = message;
-            runOnUiThread(new Runnable() { @Override public void run() { status.setText(text); } });
+            runOnUiThread(new Runnable() { @Override public void run() { notice(text); } });
         } }).start();
     }
 
