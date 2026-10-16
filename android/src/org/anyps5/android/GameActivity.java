@@ -68,8 +68,30 @@ public final class GameActivity extends SDLActivity {
         }
     }
 
+    // С root (настройка «Не выгружать Dolby Atmos»): пока процесс игры жив, процессы Dolby получают
+    // oom_score_adj -800, чтобы система при нехватке памяти выгружала другие фоновые приложения.
+    // Система пересчитывает приоритет при смене состояния процессов, поэтому раз в 5 с повторяется.
+    private static boolean backgroundProtected = false;
+    private void protectBackground() {
+        if (backgroundProtected || !getSharedPreferences("MainActivity", MODE_PRIVATE).getBoolean("protect_dolby", false)) return;
+        backgroundProtected = true;
+        final int self = android.os.Process.myPid();
+        new Thread(new Runnable() { @Override public void run() {
+            try {
+                Process su = Runtime.getRuntime().exec("su");
+                java.io.OutputStream in = su.getOutputStream();
+                in.write(("while [ -d /proc/" + self + " ]; do for p in $(ps -A -o PID,NAME | grep -i dolby | awk '{print $1}'); do echo -800 > /proc/$p/oom_score_adj; done; sleep 5; done; exit\n").getBytes());
+                in.flush();
+                in.close();
+            } catch (Exception e) {
+                backgroundProtected = false;
+            }
+        } }).start();
+    }
+
     @Override protected void onResume() {
         super.onResume();
+        protectBackground();
         textPoll.removeCallbacks(pollText);
         textPoll.postDelayed(pollText, 500);
     }

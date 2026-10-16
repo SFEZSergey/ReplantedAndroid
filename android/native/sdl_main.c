@@ -376,7 +376,11 @@ int SDL_main(int argc, char **argv) {
     setdefault("HOME", argv[3]);
     setdefault("TMPDIR", argv[3]);
     // Циклы ожидания игры (x86 PAUSE) — подсказка YIELD вместо пустого кручения на полной мощности.
-    setdefault("BOX64_DYNAREC_PAUSE", "1");
+    // PAUSE в циклах ожидания (спинлоки потоков Unity) — SEVL+WFE: ядро ждёт события, а не крутится;
+    // на одинаковой частоте меню давало больше кадров при ~12% меньшей загрузке ядер.
+    setdefault("BOX64_DYNAREC_PAUSE", "3");
+    // Кэш ресурсов и рецепты для draw со сгенерированными стадиями (прямоугольники интерфейса).
+    setdefault("APS5_GENERATED_STAGE_CACHE", "1");
     // Конвейер draw: подготовка и запись Vulkan в двух потоках (APS5_PIPELINE_DRAWS=0 — по-старому, в одном).
     setdefault("APS5_PIPELINE_DRAWS", "1");
     setdefault("BOX64_LOG", "1");

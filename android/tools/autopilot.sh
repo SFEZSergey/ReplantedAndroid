@@ -70,15 +70,28 @@ cleanup() {
     su -c "am force-stop $PKG; rm -f $GAME/autopilot.txt; if [ -f $GAME/env.txt.autopilot-backup ]; then mv $GAME/env.txt.autopilot-backup $GAME/env.txt; else : > $GAME/env.txt; fi
       chown \$(stat -c %u:%g $GAME) $GAME/env.txt; chcon \$(ls -Z -d $GAME | cut -d' ' -f1) $GAME/env.txt"
     [ "$awake" != Awake ] && su -c "input keyevent KEYCODE_SLEEP"
+    [ -n "${OLD0:-}" ] && su -c "echo $OLD0 > /sys/devices/system/cpu/cpufreq/policy0/scaling_max_freq; echo $OLD6 > /sys/devices/system/cpu/cpufreq/policy6/scaling_max_freq"
 }
 trap cleanup EXIT
 
+# FIXFREQ="<кГц policy0> <кГц policy6>": на время прогона потолок частоты ядер (одинаковые условия для сравнения
+# сборок, независимо от нагрева); после прогона прежние значения возвращаются.
+if [ -n "${FIXFREQ:-}" ]; then
+    set -- $FIXFREQ
+    OLD0=$(su -c "cat /sys/devices/system/cpu/cpufreq/policy0/scaling_max_freq"); OLD6=$(su -c "cat /sys/devices/system/cpu/cpufreq/policy6/scaling_max_freq")
+    su -c "echo $1 > /sys/devices/system/cpu/cpufreq/policy0/scaling_max_freq; echo $2 > /sys/devices/system/cpu/cpufreq/policy6/scaling_max_freq"
+    echo "cpu max fixed: $(su -c 'cat /sys/devices/system/cpu/cpufreq/policy0/scaling_max_freq /sys/devices/system/cpu/cpufreq/policy6/scaling_max_freq' | tr '\n' ' ')"
+fi
 [ "$awake" != Awake ] && su -c "input keyevent KEYCODE_WAKEUP"
 su -c "am start -n $PKG/.MainActivity --ez autostart true" >/dev/null
 echo "running ~$LEN s"
 seen=0; deadline=$(( $(date +%s) + LEN + 120 ))
+: > "$OUT/samples.txt"
 while [ "$(date +%s)" -lt "$deadline" ]; do
     sleep 2
+    # Сэмпл: время, процессорные тики игры (utime+stime), загрузка GPU %, температура большого ядра (м°C).
+    su -c 'P=$(pidof -s '$PKG'); [ -n "$P" ] && echo "$(date +%s.%N | cut -c1-14) $(cut -d" " -f14,15 /proc/$P/stat | tr " " "+" | bc) $(cat /sys/class/kgsl/kgsl-3d0/gpu_busy_percentage | tr -d " %") $(cat /sys/class/thermal/thermal_zone*/type | grep -n "^cpu-1-1-0$" | cut -d: -f1 | { read n; cat /sys/class/thermal/thermal_zone$((n-1))/temp; })"' >> "$OUT/samples.txt" 2>/dev/null
+    echo "M $seen" >> "$OUT/samples.txt"
     su -c "cat $GAME/box64.log" > "$TMP/autopilot-box64.log" 2>/dev/null
     marks=$(grep -a -c "^\[autopilot\].*mark" "$TMP/autopilot-box64.log")
     while [ "$seen" -lt "$marks" ]; do
@@ -104,6 +117,12 @@ fi
 awk 'BEGIN{seg="intro"} /^\[autopilot\].*mark/{if(n) printf "%-14s fps avg %5.1f min %3d max %3d (%d samples)\n", seg, s/n, mn, mx, n; seg=$NF; s=0; n=0; mn=999; mx=0; next}
      /^\[fps\]/{v=$2+0; s+=v; n++; if(v<mn)mn=v; if(v>mx)mx=v}
      END{if(n) printf "%-14s fps avg %5.1f min %3d max %3d (%d samples)\n", seg, s/n, mn, mx, n}' "$OUT/box64.log" > "$OUT/summary.txt"
+# Нагрузка по участкам: ядер занято (тики/100 Гц), GPU %, температура ядра в конце участка.
+names=$(grep -a "^\[autopilot\].*mark" "$OUT/box64.log" | awk '{print $NF}' | tr '\n' ' ')
+awk -v names="intro $names" 'BEGIN{n=split(names, nm, " ")}
+  /^M /{seg=$2; next}
+  NF==4{ if(seg in t0){} else {t0[seg]=$1; c0[seg]=$2}; t1[seg]=$1; c1[seg]=$2; g[seg]+=$3; k[seg]++; temp[seg]=$4 }
+  END{for(i=0;i<n;i++) if(k[i]>1) printf "load %-12s cpu cores %.2f, gpu busy %3.0f%%, cpu temp %.1f C\n", nm[i+1], (c1[i]-c0[i])/100/(t1[i]-t0[i]), g[i]/k[i], temp[i]/1000}' "$OUT/samples.txt" >> "$OUT/summary.txt"
 grep -a -E "Ask to run at NULL|Unhandled signal|\[crash\]|SIGABRT" "$OUT/box64.log" | head -5 >> "$OUT/summary.txt"
 for k in "\[pipeline\]" "\[recipe-why\]" "\[reusable-why\]" "\[recipe\] draw"; do grep -a "$k" "$OUT/box64.log" | tail -2 >> "$OUT/summary.txt"; done
 echo "cpu max now: $(su -c 'cat /sys/devices/system/cpu/cpufreq/policy0/scaling_max_freq /sys/devices/system/cpu/cpufreq/policy6/scaling_max_freq' | tr '\n' ' ')" >> "$OUT/summary.txt"

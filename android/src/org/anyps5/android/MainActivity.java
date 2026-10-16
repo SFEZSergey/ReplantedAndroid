@@ -269,6 +269,13 @@ public final class MainActivity extends Activity {
         uiLanguageButton.setOnClickListener(new View.OnClickListener() { @Override public void onClick(View v) { chooseUiLanguage(); } });
         row(list, t("Язык лаунчера", "Launcher language"), uiLanguageButton);
 
+        section(list, t("Система", "System"));
+        // Игра занимает много памяти, и система выгружает фоновые приложения; Dolby Atmos при этом
+        // отключается. С root игра держит процессы Dolby в приоритете (GameActivity.protectBackground).
+        CheckBox dolbyBox = option("", getPreferences(MODE_PRIVATE).getBoolean("protect_dolby", false));
+        dolbyBox.setOnCheckedChangeListener(new CompoundButton.OnCheckedChangeListener() { @Override public void onCheckedChanged(CompoundButton b, boolean on) { getPreferences(MODE_PRIVATE).edit().putBoolean("protect_dolby", on).apply(); } });
+        row(list, t("Не выгружать Dolby Atmos во время игры (нужен root)", "Keep Dolby Atmos loaded while playing (needs root)"), dolbyBox);
+
         section(list, t("Помощь", "Help"));
         Button logs = new Button(this); logs.setText(t("Сохранить…", "Save…"));
         logs.setOnClickListener(new View.OnClickListener() { @Override public void onClick(View v) { chooseLogsTarget(); } });
