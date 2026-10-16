@@ -1,52 +1,58 @@
 # PvZ: Replanted — Android
 
-Порт PS5-версии **Plants vs. Zombies: Replanted** (PPSA29802) на Android (arm64) на основе эмулятора
-[AnyPS5](https://github.com/boykopovar/AnyPS5): x86-64 код игры выполняется через встроенный
-[box64](https://github.com/ptitSeb/box64), графика PS5 (AGC) переводится в Vulkan и рисуется драйвером
-**Turnip** (Mesa) через [libadrenotools](https://github.com/bylaws/libadrenotools).
+**English** | [Русский](README.ru.md)
 
-> ⚠️ **Игры в репозитории и в APK нет.** Нужен ваш собственный, законно полученный и **расшифрованный**
-> дамп игры (папка с `eboot.bin`). Репозиторий не содержит и не распространяет файлы игры или прошивки PS5.
+An Android (arm64) port of the PS5 version of **Plants vs. Zombies: Replanted** (PPSA29802), built on the
+[AnyPS5](https://github.com/boykopovar/AnyPS5) emulator: the game's x86-64 code runs through an embedded
+[box64](https://github.com/ptitSeb/box64), PS5 graphics (AGC) are translated to Vulkan and rendered by the
+**Turnip** (Mesa) driver loaded via [libadrenotools](https://github.com/bylaws/libadrenotools).
 
-## Требования
+> ⚠️ **The game is not included in this repository or in the APK.** You need your own legally obtained,
+> **decrypted** dump of the game (the folder containing `eboot.bin`). This repository does not contain or
+> distribute any game or PS5 firmware files.
+
+## Download
+
+Get the APK from [Releases](https://github.com/SFEZSergey/ReplantedAndroid/releases) (currently a beta).
+
+## Requirements
 
 - Android 8.0+ (API 26), arm64-v8a.
-- **Видеокарта Adreno (Snapdragon)** — встроенный Turnip работает только с Adreno (проверено на Adreno 830, Snapdragon 8 Elite).
-- 8 ГБ ОЗУ и больше рекомендуется; ~5 ГБ места под игру.
+- **An Adreno (Snapdragon) GPU** — the bundled Turnip driver only works on Adreno (tested on Adreno 830, Snapdragon 8 Elite).
+- 8 GB of RAM or more recommended; ~5 GB of free space for the game.
 
-## Установка и запуск
+## Installing and running
 
-1. Установите APK (из релизов или собранный самостоятельно).
-2. В лаунчере нажмите **«Папка дампа»** и выберите папку дампа игры (где лежит `eboot.bin`).
-3. Нажмите **«Импорт и запуск»** — лаунчер скопирует игру в память приложения, извлечёт ELF и подготовит
-   рантайм. Дальше кнопка называется **«Играть»**.
+1. Install the APK.
+2. In the launcher tap **"Папка дампа"** (dump folder) and pick the game's dump folder (the one with `eboot.bin`).
+3. Tap **"Импорт и запуск"** (import and run) — the launcher copies the game into the app's private storage,
+   extracts the ELF and prepares the runtime. After that the button reads **"Играть"** (play).
 
-Настройки лаунчера:
-- **Сенсорное управление** — виртуальный геймпад поверх игры (кнопка-глаз сверху прячет его). С физическим
-  геймпадом слой по умолчанию скрыт.
-- **Турбо GPU** — максимальные частоты видеокарты (быстрее, но греется сильнее).
-- **FPS: 60 / 45 / 30** — ограничение кадров против нагрева.
+Launcher options:
+- **Touch controls** — a virtual gamepad over the game (the eye button at the top hides it). Hidden by default when a physical gamepad is connected.
+- **GPU turbo** — maximum GPU clocks (faster, but the phone heats up more).
+- **FPS: 60 / 45 / 30** — frame-rate limit against overheating.
 
-Тонкие настройки — файл `env.txt` в папке игры (`files/game/env.txt`), строки `ИМЯ=значение`
-(например `APS5_FPS_LIMIT=45`, `APS5_NO_WORKER_AFFINITY=1`).
+Fine-tuning is done in `env.txt` inside the game folder (`files/game/env.txt`), one `NAME=value` per line
+(for example `APS5_FPS_LIMIT=45`, `APS5_NO_WORKER_AFFINITY=1`).
 
-## Состав репозитория
+## Repository layout
 
-| Путь | Что |
+| Path | Contents |
 |---|---|
-| `android/` | APK: лаунчер и игровая Activity (Java), сенсорное управление, `native/sdl_main.c` (libmain: запуск box64, Vulkan через adrenotools, окружение), `build.sh`, `tools/` |
-| `external/AnyPS5` | подмодуль — форк AnyPS5, ветка `android` (нативная bionic-группа драйвера, отслеживание записи, вывод на Android, оптимизации) |
-| `external/box64` | подмодуль — форк box64, ветка `android` (box64 как библиотека внутри APK, совместимость glibc поверх bionic, сигналы, DynaCache) |
-| `patches/mesa-26.2.4-android.patch` | Turnip: импорт host-памяти через KGSL, линейные буферы swapchain с gralloc |
-| `patches/sdl2-android-udev-once.patch` | SDL2 (подмодуль AnyPS5) |
-| `cmake/` | toolchain-файлы CMake (bionic arm64 и x86-64 glibc), cross-файл Meson для Mesa, `box64-emu.sh` |
-| `compat/` | заголовки совместимости (ndk-shim, box64-android-compat) |
+| `android/` | The APK: launcher and game Activity (Java), touch controls, `native/sdl_main.c` (libmain: starts box64, Vulkan through adrenotools, environment), `build.sh`, `tools/` |
+| `external/AnyPS5` | submodule — AnyPS5 fork, branch `android` (native bionic driver group, write watching, Android presentation, optimizations) |
+| `external/box64` | submodule — box64 fork, branch `android` (box64 as a library inside the APK, glibc compatibility on top of bionic, signals, DynaCache) |
+| `patches/mesa-26.2.4-android.patch` | Turnip: host-memory import through KGSL, linear gralloc swapchain buffers |
+| `patches/sdl2-android-udev-once.patch` | SDL2 (an AnyPS5 submodule) |
+| `cmake/` | CMake toolchain files (bionic arm64 and x86-64 glibc), Meson cross file for Mesa, `box64-emu.sh` |
+| `compat/` | compatibility headers (ndk-shim, box64-android-compat) |
 
-## Сборка
+## Building
 
-Собиралось на самом телефоне в **Termux** (clang/LLVM 21, cmake, ninja, meson, `aapt`, `d8`, `apksigner`,
-`zipalign`, `patchelf`, OpenJDK 21). Зависимости, которые ставятся отдельно, по умолчанию ищутся в `deps/`
-(все пути переопределяются переменными окружения, см. начало `android/build.sh`).
+Everything was built on the phone itself in **Termux** (clang/LLVM 21, cmake, ninja, meson, `aapt`, `d8`,
+`apksigner`, `zipalign`, `patchelf`, OpenJDK 21). Dependencies installed separately are looked up in `deps/`
+by default (every path can be overridden with environment variables, see the top of `android/build.sh`).
 
 ```sh
 git clone --recursive https://github.com/SFEZSergey/ReplantedAndroid
@@ -54,25 +60,25 @@ cd ReplantedAndroid
 git -C external/AnyPS5/3rdparty/SDL2 apply ../../../../patches/sdl2-android-udev-once.patch
 ```
 
-1. **AnyPS5, нативная группа (bionic arm64)** → `external/AnyPS5/build-bionic`:
+1. **AnyPS5, native group (bionic arm64)** → `external/AnyPS5/build-bionic`:
    `cmake -S external/AnyPS5 -B external/AnyPS5/build-bionic -G Ninja -DCMAKE_TOOLCHAIN_FILE=$PWD/cmake/aarch64-bionic.cmake -DCMAKE_BUILD_TYPE=Release -DAPS5_NATIVE_GROUP=ON -DAPS5_NO_FFMPEG=ON -DANYPS5_ENABLE_SPIRV_TOOLS=OFF`
-   и цели `SDL2 aps5coreshim libSceAgcDriver libSceVideoOut libScePad libSceMouse libSceKeyboard libSceAudioOut`.
-2. **AnyPS5, x86-64 библиотеки PS5 (PRX)** → `external/AnyPS5/build-x64s`: тот же исходник с
-   `cmake/x86_64-linux-gnu.cmake`; нужен x86-64 sysroot Debian/Ubuntu (`PVZ_SYSROOT_X86_64`) и box64 для
-   запуска x86-утилит сборки (`PVZ_BOX64`, см. `cmake/box64-emu.sh`).
+   with the targets `SDL2 aps5coreshim libSceAgcDriver libSceVideoOut libScePad libSceMouse libSceKeyboard libSceAudioOut`.
+2. **AnyPS5, x86-64 PS5 libraries (PRX)** → `external/AnyPS5/build-x64s`: the same source with
+   `cmake/x86_64-linux-gnu.cmake`; needs a Debian/Ubuntu x86-64 sysroot (`PVZ_SYSROOT_X86_64`) and box64 to
+   run the x86 build tools (`PVZ_BOX64`, see `cmake/box64-emu.sh`).
 3. **box64** → `external/box64/build-lib`: `-DTERMUX=1 -DARM_DYNAREC=1 -DBOX64_SHARED_LIB=ON
    -DCMAKE_BUILD_TYPE=RelWithDebInfo -DCMAKE_C_FLAGS="--target=aarch64-linux-android30 -fPIC -I$PWD/compat/box64-android-compat"`.
-4. **Mesa 26.2.4 (Turnip)**: исходники mesa-26.2.4 + `patches/mesa-26.2.4-android.patch`, meson с
+4. **Mesa 26.2.4 (Turnip)**: mesa-26.2.4 sources + `patches/mesa-26.2.4-android.patch`, meson with
    `--cross-file cmake/mesa-android-cross.ini -Dbuildtype=release -Dvulkan-drivers=freedreno -Dgallium-drivers= -Dfreedreno-kmds=kgsl -Dplatforms=android -Dandroid-stub=true -Dandroid-libbacktrace=disabled -Dglx=disabled -Degl=disabled -Dgles1=disabled -Dgles2=disabled -Dopengl=false -Dllvm=disabled -Dzlib=enabled`
    → `MESA_BUILD_DIR`.
-5. **libadrenotools** (сборка по его README) → `ADRENOTOOLS_DIR`; **relinker AnyPS5** для arm64
-   (`-DANYPS5_RELINKER_ONLY=ON`) → `RELINKER_BIN`; x86-64 библиотеки времени выполнения из Debian/Ubuntu
-   (`libstdc++.so.6/.5`, `libgcc_s.so.1`, `libssl/libcrypto 1.1 и 1.0.0`, `libmbed*`, `libpng12`, `libunwind`) → `X64LIB_DIR`;
+5. **libadrenotools** (built per its README) → `ADRENOTOOLS_DIR`; the **AnyPS5 relinker** for arm64
+   (`-DANYPS5_RELINKER_ONLY=ON`) → `RELINKER_BIN`; x86-64 runtime libraries from Debian/Ubuntu
+   (`libstdc++.so.6/.5`, `libgcc_s.so.1`, `libssl/libcrypto 1.1 and 1.0.0`, `libmbed*`, `libpng12`, `libunwind`) → `X64LIB_DIR`;
    `android.jar` (API 35) → `ANDROID_JAR`.
-6. `android/build.sh` → `android/out/PvZ-Replanted.apk` (подпись отладочным ключом, создаётся при первой сборке).
+6. `android/build.sh` → `android/out/PvZ-Replanted.apk` (signed with a debug key created on the first build).
 
-## Лицензии
+## Licenses
 
-Код порта — GPL-2.0 (как AnyPS5, см. `LICENSE`). Компоненты: AnyPS5 — GPL-2.0, box64 — MIT, Mesa — MIT,
-SDL2 — zlib, libadrenotools — BSD-2-Clause. «Plants vs. Zombies» и связанные материалы (включая иконку
-приложения) принадлежат Electronic Arts / PopCap; проект не связан с ними.
+The port's code is GPL-2.0 (like AnyPS5, see `LICENSE`). Components: AnyPS5 — GPL-2.0, box64 — MIT,
+Mesa — MIT, SDL2 — zlib, libadrenotools — BSD-2-Clause. "Plants vs. Zombies" and related material (including
+the app icon) belong to Electronic Arts / PopCap; this project is not affiliated with them.
