@@ -35,6 +35,13 @@ Launcher options:
 - **GPU driver** — the built-in Turnip, the phone's system Vulkan driver, or your own driver package
   (an adrenotools `.zip` with `meta.json`, as used by Yuzu/Eden/Winlator). If the chosen driver fails to load,
   the built-in Turnip is used.
+- **Game language** — the languages the game is translated into (read from the dump's `param.json`; for PvZ:
+  English, French, German, Spanish, Japanese, Portuguese (Brazil)), or "System" — the phone's language when the
+  game has it, English otherwise. Other PS5 languages are listed separately.
+- **Language** — the launcher's own language: system, English or Russian.
+- **GPU driver** — the built-in Turnip, the phone's system Vulkan driver, or your own driver package
+  (an adrenotools `.zip` with `meta.json`, as used by Yuzu/Eden/Winlator). If the chosen driver fails to load,
+  the built-in Turnip is used.
 - **Game language** — any of the 31 PS5 console languages, or "System" (follows the phone's language).
 - **Language** — the launcher's own language: system, English or Russian.
 

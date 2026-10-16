@@ -150,9 +150,49 @@ public final class MainActivity extends Activity {
             default: return 1;
         }
     }
+    // Языки, на которые переведена игра: ключи localizedParameters в sce_sys/param.json дампа, и язык по
+    // умолчанию (defaultLanguage). Без param.json — все языки, по умолчанию English (US).
+    private static final String[][] PARAM_LOCALES = {{"ja-JP", "0"}, {"en-US", "1"}, {"fr-FR", "2"}, {"es-ES", "3"}, {"de-DE", "4"}, {"it-IT", "5"}, {"nl-NL", "6"}, {"pt-PT", "7"}, {"ru-RU", "8"}, {"ko-KR", "9"}, {"zh-Hant", "10"}, {"zh-Hans", "11"}, {"fi-FI", "12"}, {"sv-SE", "13"}, {"da-DK", "14"}, {"no-NO", "15"}, {"pl-PL", "16"}, {"pt-BR", "17"}, {"en-GB", "18"}, {"tr-TR", "19"}, {"es-419", "20"}, {"ar-AE", "21"}, {"fr-CA", "22"}, {"cs-CZ", "23"}, {"hu-HU", "24"}, {"el-GR", "25"}, {"ro-RO", "26"}, {"th-TH", "27"}, {"vi-VN", "28"}, {"id-ID", "29"}, {"uk-UA", "30"}};
+    private static int localeCode(String locale) {
+        for (String[] entry : PARAM_LOCALES) if (entry[0].equalsIgnoreCase(locale)) return Integer.parseInt(entry[1]);
+        return -1;
+    }
+    private java.util.Set<Integer> supportedLanguages = null;
+    private int defaultGameLanguage = 1;
+    private java.util.Set<Integer> gameLanguages() {
+        if (supportedLanguages != null) return supportedLanguages;
+        supportedLanguages = new java.util.LinkedHashSet<>();
+        final File game = new File(getFilesDir(), "game");
+        for (File param : new File[] {new File(game, "sce_sys/param.json"), new File(game, "app0/sce_sys/param.json")}) {
+            try {
+                final JSONObject json = new JSONObject(new String(Files.readAllBytes(param.toPath()), "UTF-8"));
+                final JSONObject localized = json.optJSONObject("localizedParameters");
+                if (localized != null) {
+                    final java.util.Iterator<String> keys = localized.keys();
+                    while (keys.hasNext()) { final int code = localeCode(keys.next()); if (code >= 0) supportedLanguages.add(code); }
+                    final int fallback = localeCode(localized.optString("defaultLanguage", json.optString("defaultLanguage", "en-US")));
+                    if (fallback >= 0) { defaultGameLanguage = fallback; supportedLanguages.add(fallback); }
+                }
+                if (!supportedLanguages.isEmpty()) break;
+            } catch (Exception ignored) {}
+        }
+        return supportedLanguages;
+    }
+    private boolean gameSupports(int code) { return gameLanguages().isEmpty() || gameLanguages().contains(code); }
+    // Язык телефона, если игра на него переведена (английский — британский/американский взаимозаменяемы), иначе язык игры по умолчанию.
+    private int autoGameLanguage() {
+        final int wanted = consoleLanguageFor(Locale.getDefault());
+        if (gameSupports(wanted)) return wanted;
+        if (wanted == 18 && gameSupports(1)) return 1;
+        if (wanted == 20 && gameSupports(3)) return 3;
+        if (wanted == 22 && gameSupports(2)) return 2;
+        if (wanted == 7 && gameSupports(17)) return 17;
+        gameLanguages();
+        return defaultGameLanguage;
+    }
     private int gameLanguageCode() {
         final String setting = gameLanguageSetting();
-        if (setting.equals("auto")) return consoleLanguageFor(Locale.getDefault());
+        if (setting.equals("auto")) return autoGameLanguage();
         try { return Integer.parseInt(setting); } catch (NumberFormatException e) { return 1; }
     }
     private String gameLanguageName(int code) {
@@ -161,17 +201,29 @@ public final class MainActivity extends Activity {
     }
     // Записывается перед каждым запуском: "как в системе" следует за языком телефона.
     private void applyGameLanguage() { setLauncherValue("ANYPS5_LANGUAGE", Integer.toString(gameLanguageCode())); }
-    private void chooseGameLanguage() {
-        final String[] labels = new String[GAME_LANGUAGE_NAMES.length + 1];
-        labels[0] = t("Как в системе", "System") + " (" + gameLanguageName(consoleLanguageFor(Locale.getDefault())) + ")";
-        System.arraycopy(GAME_LANGUAGE_NAMES, 0, labels, 1, GAME_LANGUAGE_NAMES.length);
+    private void chooseGameLanguage() { chooseGameLanguage(false); }
+    // Сначала языки, на которые переведена игра; «Другие» открывают весь список языков PS5.
+    private void chooseGameLanguage(final boolean all) {
+        final java.util.List<Integer> codes = new java.util.ArrayList<>();
+        final java.util.List<String> labels = new java.util.ArrayList<>();
+        codes.add(-1);
+        labels.add(t("Как в системе", "System") + " (" + gameLanguageName(autoGameLanguage()) + ")");
+        for (int i = 0; i < GAME_LANGUAGE_CODES.length; i++) {
+            if (!all && !gameSupports(GAME_LANGUAGE_CODES[i])) continue;
+            codes.add(GAME_LANGUAGE_CODES[i]);
+            labels.add(GAME_LANGUAGE_NAMES[i] + (all && !gameSupports(GAME_LANGUAGE_CODES[i]) ? t(" — нет в игре", " — not in the game") : ""));
+        }
+        final boolean offerAll = !all && !gameLanguages().isEmpty();
+        if (offerAll) { codes.add(-2); labels.add(t("Другие (могут не поддерживаться)…", "Other (may be unsupported)…")); }
         int current = 0;
-        if (!gameLanguageSetting().equals("auto")) for (int i = 0; i < GAME_LANGUAGE_CODES.length; i++) if (Integer.toString(GAME_LANGUAGE_CODES[i]).equals(gameLanguageSetting())) current = i + 1;
-        new AlertDialog.Builder(this).setTitle(t("Язык игры", "Game language")).setSingleChoiceItems(labels, current, new DialogInterface.OnClickListener() {
+        if (!gameLanguageSetting().equals("auto")) for (int i = 0; i < codes.size(); i++) if (Integer.toString(codes.get(i)).equals(gameLanguageSetting())) current = i;
+        new AlertDialog.Builder(this).setTitle(t("Язык игры", "Game language")).setSingleChoiceItems(labels.toArray(new String[0]), current, new DialogInterface.OnClickListener() {
             @Override public void onClick(DialogInterface dialog, int which) {
-                getPreferences(MODE_PRIVATE).edit().putString("game_language", which == 0 ? "auto" : Integer.toString(GAME_LANGUAGE_CODES[which - 1])).apply();
-                applyGameLanguage();
                 dialog.dismiss();
+                final int code = codes.get(which);
+                if (code == -2) { chooseGameLanguage(true); return; }
+                getPreferences(MODE_PRIVATE).edit().putString("game_language", code == -1 ? "auto" : Integer.toString(code)).apply();
+                applyGameLanguage();
                 refreshSettingButtons();
             }
         }).show();
