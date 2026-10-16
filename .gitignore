@@ -1,0 +1,10 @@
+# Сборка и подпись
+android/out/
+android/debug.keystore
+*.apk
+*.keystore
+# Внешние зависимости, которые ставятся отдельно (см. README)
+deps/
+# Логи и профили
+*.log
+*.txt.profile

@@ -1,0 +1,16 @@
+# Нативная сборка группы AnyPS5 под bionic (Android API 30) компилятором Termux: для box64 в TERMUX-режиме и APK.
+# PVZ_ROOT: корень репозитория (по умолчанию — каталог выше этого файла).
+if(NOT DEFINED PVZ_ROOT)
+  get_filename_component(PVZ_ROOT "${CMAKE_CURRENT_LIST_DIR}/.." ABSOLUTE)
+endif()
+set(CMAKE_SYSTEM_NAME Linux)
+set(CMAKE_SYSTEM_PROCESSOR aarch64)
+set(CMAKE_C_COMPILER clang)
+set(CMAKE_CXX_COMPILER clang++)
+set(CMAKE_C_COMPILER_TARGET aarch64-linux-android30)
+set(CMAKE_CXX_COMPILER_TARGET aarch64-linux-android30)
+set(CMAKE_CROSSCOMPILING_EMULATOR env)
+set(ANDROID TRUE)
+set(ANDROID_NDK ${PVZ_ROOT}/compat/ndk-shim)
+set(CMAKE_CXX_FLAGS_INIT "-isystem ${PVZ_ROOT}/compat/ndk-shim/include -include ${PVZ_ROOT}/external/AnyPS5/core/libs/prx/aps5native/AtomicSharedPtr.hpp")
+set(CMAKE_C_FLAGS_INIT "-isystem ${PVZ_ROOT}/compat/ndk-shim/include")

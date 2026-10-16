@@ -1,0 +1,8 @@
+[submodule "external/AnyPS5"]
+	path = external/AnyPS5
+	url = https://github.com/SFEZSergey/AnyPS5.git
+	branch = android
+[submodule "external/box64"]
+	path = external/box64
+	url = https://github.com/SFEZSergey/box64.git
+	branch = android
