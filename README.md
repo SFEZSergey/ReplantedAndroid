@@ -32,6 +32,11 @@ Launcher options:
 - **Touch controls** — a virtual gamepad over the game (the eye button at the top hides it). Hidden by default when a physical gamepad is connected.
 - **GPU turbo** — maximum GPU clocks (faster, but the phone heats up more).
 - **FPS: 60 / 45 / 30** — frame-rate limit against overheating.
+- **GPU driver** — the built-in Turnip, the phone's system Vulkan driver, or your own driver package
+  (an adrenotools `.zip` with `meta.json`, as used by Yuzu/Eden/Winlator). If the chosen driver fails to load,
+  the built-in Turnip is used.
+- **Game language** — any of the 31 PS5 console languages, or "System" (follows the phone's language).
+- **Language** — the launcher's own language: system, English or Russian.
 
 Fine-tuning is done in `env.txt` inside the game folder (`files/game/env.txt`), one `NAME=value` per line
 (for example `APS5_FPS_LIMIT=45`, `APS5_NO_WORKER_AFFINITY=1`).
