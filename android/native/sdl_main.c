@@ -39,6 +39,58 @@ JNIEXPORT void JNICALL Java_org_anyps5_android_GameActivity_nativeVirtualPad(JNI
     atomic_fetch_add(&aps5_virtual_pad.sequence, 1);
 }
 
+// Ввод текста для игры (sceImeDialog, x86 под box64): libSceImeDialog находит этот объект по адресу
+// из APS5_TEXT_INPUT, кладёт начальный текст и ставит state = 1; GameActivity опрашивает его, показывает
+// поле ввода с клавиатурой Android и возвращает текст (state 3) или отмену (4). Игра прерывает ввод
+// state = 5 (диалог закрывается), после результата игра сама возвращает state в 0.
+enum { APS5_TEXT_IDLE = 0, APS5_TEXT_REQUESTED = 1, APS5_TEXT_SHOWN = 2, APS5_TEXT_DONE = 3, APS5_TEXT_CANCELLED = 4, APS5_TEXT_ABORTED = 5 };
+#define APS5_TEXT_CAPACITY 1024
+struct aps5_text_input {
+    _Atomic uint32_t state;
+    uint32_t max_length;
+    uint32_t type;
+    uint32_t reserved;
+    uint16_t text[APS5_TEXT_CAPACITY];
+};
+__attribute__((visibility("default"))) struct aps5_text_input aps5_text_input;
+
+// Запрос игры: начальный текст (и переход в «показан») или null, если запроса нет.
+JNIEXPORT jstring JNICALL Java_org_anyps5_android_GameActivity_nativeTextInputRequest(JNIEnv* env, jclass cls) {
+    (void)cls;
+    uint32_t expected = APS5_TEXT_REQUESTED;
+    if (!atomic_compare_exchange_strong(&aps5_text_input.state, &expected, APS5_TEXT_SHOWN)) return NULL;
+    jsize length = 0;
+    while (length < APS5_TEXT_CAPACITY - 1 && aps5_text_input.text[length] != 0) ++length;
+    return (*env)->NewString(env, (const jchar*)aps5_text_input.text, length);
+}
+
+JNIEXPORT jint JNICALL Java_org_anyps5_android_GameActivity_nativeTextInputMaxLength(JNIEnv* env, jclass cls) {
+    (void)env; (void)cls;
+    const uint32_t max = aps5_text_input.max_length;
+    return (jint)(max == 0 || max >= APS5_TEXT_CAPACITY ? APS5_TEXT_CAPACITY - 1 : max);
+}
+
+// Показанный диалог ещё нужен (игра не прервала ввод).
+JNIEXPORT jboolean JNICALL Java_org_anyps5_android_GameActivity_nativeTextInputPending(JNIEnv* env, jclass cls) {
+    (void)env; (void)cls;
+    return atomic_load(&aps5_text_input.state) == APS5_TEXT_SHOWN ? JNI_TRUE : JNI_FALSE;
+}
+
+JNIEXPORT void JNICALL Java_org_anyps5_android_GameActivity_nativeTextInputDone(JNIEnv* env, jclass cls, jstring text) {
+    (void)cls;
+    if (atomic_load(&aps5_text_input.state) != APS5_TEXT_SHOWN) return;
+    if (text == NULL) {
+        atomic_store(&aps5_text_input.state, APS5_TEXT_CANCELLED);
+        return;
+    }
+    const jsize length = (*env)->GetStringLength(env, text);
+    const uint32_t max = (uint32_t)Java_org_anyps5_android_GameActivity_nativeTextInputMaxLength(env, cls);
+    const jsize copied = length < (jsize)max ? length : (jsize)max;
+    (*env)->GetStringRegion(env, text, 0, copied, (jchar*)aps5_text_input.text);
+    aps5_text_input.text[copied] = 0;
+    atomic_store(&aps5_text_input.state, APS5_TEXT_DONE);
+}
+
 extern int box64_main(int argc, const char **argv, char **env);
 extern char **environ;
 
@@ -243,6 +295,9 @@ int SDL_main(int argc, char **argv) {
     char virtual_pad[32];
     snprintf(virtual_pad, sizeof(virtual_pad), "%llx", (unsigned long long)(uintptr_t)&aps5_virtual_pad);
     setenv("APS5_VIRTUAL_PAD", virtual_pad, 1);
+    char text_input[32];
+    snprintf(text_input, sizeof(text_input), "%llx", (unsigned long long)(uintptr_t)&aps5_text_input);
+    setenv("APS5_TEXT_INPUT", text_input, 1);
     // Кэш шейдеров/конвейеров: по умолчанию рядом с исполняемым файлом (/system/bin — нет доступа).
     char cache[PATH_MAX];
     snprintf(cache, sizeof(cache), "%s/shader_cache", game_dir);
@@ -251,6 +306,8 @@ int SDL_main(int argc, char **argv) {
     setdefault("TMPDIR", argv[3]);
     // Циклы ожидания игры (x86 PAUSE) — подсказка YIELD вместо пустого кручения на полной мощности.
     setdefault("BOX64_DYNAREC_PAUSE", "1");
+    // Конвейер draw: подготовка и запись Vulkan в двух потоках (APS5_PIPELINE_DRAWS=0 — по-старому, в одном).
+    setdefault("APS5_PIPELINE_DRAWS", "1");
     setdefault("BOX64_LOG", "1");
     setdefault("BOX64_SHOWBT", "1");
     setdefault("BOX64_DYNAREC_BIGBLOCK", "3");
