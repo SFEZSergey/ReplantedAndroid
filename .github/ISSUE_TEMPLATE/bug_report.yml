@@ -1,0 +1,58 @@
+name: Bug report
+description: Crash, graphics glitch, sound or input problem
+labels: [bug]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Do not attach game files or links to them. Only your own dump can be used with this port.
+  - type: input
+    id: device
+    attributes:
+      label: Phone
+      placeholder: e.g. Redmi Note 9 Pro
+    validations:
+      required: true
+  - type: input
+    id: soc
+    attributes:
+      label: Chipset / GPU
+      placeholder: e.g. Snapdragon 720G / Adreno 618
+    validations:
+      required: true
+  - type: input
+    id: android
+    attributes:
+      label: Android version and skin
+      placeholder: e.g. Android 12, MIUI 14
+    validations:
+      required: true
+  - type: input
+    id: version
+    attributes:
+      label: APK version
+      placeholder: e.g. v0.1.1-beta
+    validations:
+      required: true
+  - type: dropdown
+    id: driver
+    attributes:
+      label: GPU driver (launcher setting)
+      options: [Built-in Turnip, System driver, Custom driver package]
+    validations:
+      required: true
+  - type: textarea
+    id: what
+    attributes:
+      label: What happens
+      description: When does it happen (during import, intro, menu, level) and what do you see?
+    validations:
+      required: true
+  - type: textarea
+    id: logs
+    attributes:
+      label: Logs
+      description: |
+        Rooted phones: attach `/data/data/org.anyps5.android/files/game/box64.log`.
+        Otherwise (with a PC): `adb logcat -d > logcat.txt` right after the crash.
+        A "Logs" button in the launcher is planned (#1).
