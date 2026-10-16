@@ -91,6 +91,77 @@ JNIEXPORT void JNICALL Java_org_anyps5_android_GameActivity_nativeTextInputDone(
     atomic_store(&aps5_text_input.state, APS5_TEXT_DONE);
 }
 
+// Автопилот для тестов (APS5_AUTOPILOT=<файл сценария>): нажимает кнопки через тот же виртуальный
+// геймпад, что и сенсорное управление, — нажатия видит только игра. Строки сценария:
+//   wait <секунды> | press <кнопка> [мс] | stick <x> <y> <мс> (левый стик, -1..1) | mark <метка> | done
+// Кнопки: cross circle square triangle l1 r1 l2 r2 l3 r3 options touchpad up down left right.
+// Метки и ход пишутся в box64.log строками "[autopilot] ...".
+static double autopilot_now(void) {
+    struct timespec t;
+    clock_gettime(CLOCK_MONOTONIC, &t);
+    return (double)t.tv_sec + (double)t.tv_nsec / 1e9;
+}
+
+static void autopilot_send(uint32_t buttons, int lx, int ly) {
+    const uint32_t sticks = (uint32_t)(lx & 0xff) | (uint32_t)(ly & 0xff) << 8 | 0x80u << 16 | 0x80u << 24;
+    atomic_store(&aps5_virtual_pad.buttons, buttons);
+    atomic_store(&aps5_virtual_pad.sticks, sticks);
+    atomic_fetch_add(&aps5_virtual_pad.sequence, 1);
+}
+
+static void autopilot_sleep(double seconds) {
+    if (seconds <= 0) return;
+    struct timespec t = {(time_t)seconds, (long)((seconds - (double)(time_t)seconds) * 1e9)};
+    while (nanosleep(&t, &t) != 0) {}
+}
+
+static uint32_t autopilot_button(const char *name) {
+    static const struct { const char *name; uint32_t bit; } names[] = {
+        {"cross", 0x4000}, {"circle", 0x2000}, {"square", 0x8000}, {"triangle", 0x1000},
+        {"l1", 0x400}, {"r1", 0x800}, {"l2", 0x100}, {"r2", 0x200}, {"l3", 0x2}, {"r3", 0x4},
+        {"options", 0x8}, {"touchpad", 0x100000}, {"up", 0x10}, {"right", 0x20}, {"down", 0x40}, {"left", 0x80},
+    };
+    for (size_t i = 0; i < sizeof(names) / sizeof(names[0]); ++i) if (strcmp(names[i].name, name) == 0) return names[i].bit;
+    return 0;
+}
+
+static void *autopilot(void *arg) {
+    const char *path = (const char *)arg;
+    FILE *script = fopen(path, "r");
+    if (script == NULL) { fprintf(stderr, "[autopilot] cannot open %s\n", path); return NULL; }
+    const double start = autopilot_now();
+    char line[256];
+    while (fgets(line, sizeof(line), script) != NULL) {
+        char command[32] = {0}, word[96] = {0};
+        double a = 0, b = 0, c = 0;
+        if (sscanf(line, "%31s", command) != 1 || command[0] == '#') continue;
+        if (strcmp(command, "wait") == 0 && sscanf(line, "%*s %lf", &a) == 1) {
+            autopilot_sleep(a);
+        } else if (strcmp(command, "press") == 0 && sscanf(line, "%*s %95s", word) == 1) {
+            const uint32_t bit = autopilot_button(word);
+            if (sscanf(line, "%*s %*s %lf", &a) != 1) a = 150;
+            fprintf(stderr, "[autopilot] %.1f s: press %s\n", autopilot_now() - start, word);
+            autopilot_send(bit, 128, 128);
+            autopilot_sleep(a / 1000.0);
+            autopilot_send(0, 128, 128);
+        } else if (strcmp(command, "stick") == 0 && sscanf(line, "%*s %lf %lf %lf", &a, &b, &c) == 3) {
+            fprintf(stderr, "[autopilot] %.1f s: stick %.1f %.1f\n", autopilot_now() - start, a, b);
+            autopilot_send(0, (int)(128 + a * 127), (int)(128 + b * 127));
+            autopilot_sleep(c / 1000.0);
+            autopilot_send(0, 128, 128);
+        } else if (strcmp(command, "mark") == 0 && sscanf(line, "%*s %95s", word) == 1) {
+            fprintf(stderr, "[autopilot] %.1f s: mark %s\n", autopilot_now() - start, word);
+        } else if (strcmp(command, "done") == 0) {
+            break;
+        }
+        fflush(stderr);
+    }
+    fclose(script);
+    fprintf(stderr, "[autopilot] %.1f s: done\n", autopilot_now() - start);
+    fflush(stderr);
+    return NULL;
+}
+
 extern int box64_main(int argc, const char **argv, char **env);
 extern char **environ;
 
@@ -334,6 +405,13 @@ int SDL_main(int argc, char **argv) {
     if (save == NULL || strcmp(save, "0") != 0) {
         pthread_t thread;
         if (pthread_create(&thread, NULL, dynacache_saver, NULL) == 0) pthread_detach(thread);
+    }
+    const char *autopilot_script = getenv("APS5_AUTOPILOT");
+    if (autopilot_script != NULL && autopilot_script[0] != '\0') {
+        static char autopilot_path[PATH_MAX];
+        snprintf(autopilot_path, sizeof(autopilot_path), "%s", autopilot_script);
+        pthread_t thread;
+        if (pthread_create(&thread, NULL, autopilot, autopilot_path) == 0) pthread_detach(thread);
     }
     const char *sample = getenv("APS5_SAMPLE");
     if (sample != NULL && strcmp(sample, "1") == 0) {

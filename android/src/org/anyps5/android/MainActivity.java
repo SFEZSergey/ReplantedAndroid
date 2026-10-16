@@ -76,6 +76,14 @@ public final class MainActivity extends Activity {
         loadBackground();
         showSettings(state != null && state.getBoolean("settings", false));
         showStatus();
+        // Тестовый прогон (tools/autopilot.sh): лаунчер поверх экрана блокировки сам обновляет рантайм
+        // и запускает игру, как кнопка «Играть».
+        final boolean autopilot = new File(new File(getFilesDir(), "game"), "autopilot.txt").isFile();
+        if (autopilot && android.os.Build.VERSION.SDK_INT >= 27) {
+            setShowWhenLocked(true);
+            setTurnScreenOn(true);
+        }
+        if (state == null && autopilot && getIntent().getBooleanExtra("autostart", false) && start.isEnabled()) importAndStart();
     }
 
     // ---- Фон: размытая обложка игры (sce_sys/pic0.png из импортированного дампа; до импорта — иконка). ----
@@ -586,6 +594,10 @@ public final class MainActivity extends Activity {
         try { if (current.equals(new String(Files.readAllBytes(stamp.toPath())).trim())) return; } catch (Exception ignored) {}
         copyPackagedRuntime("runtime/prx", new File(game, "libs"));
         copyPackagedRuntime("runtime/x64lib", new File(game, "x64lib"));
+        // box64's translation cache (DynaCache) is keyed by each library's version: after an update the
+        // old files are never used again, so they go (the cache refills while playing).
+        File[] cached = new File(getFilesDir(), ".cache/box64").listFiles();
+        if (cached != null) for (File file : cached) if (file.getName().contains(".box64")) file.delete();
         Files.write(stamp.toPath(), current.getBytes());
     }
 

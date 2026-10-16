@@ -6,7 +6,7 @@
 O=~/ps5-android/apk/pipeline-profile.txt; : > $O; DELAYS=${DELAYS:-75 125}
 su -c 'until [ -n "$(pidof org.anyps5.android)" ]; do sleep 1; done'
 for DELAY in $DELAYS; do sleep $DELAY; echo "######## after +$DELAY s" >> $O
-su -c 'P=$(pidof org.anyps5.android); [ -z "$P" ] && { echo "no game"; exit; }
+su -c 'P=$(pidof -s org.anyps5.android); [ -z "$P" ] && { echo "no game"; exit; }
 snap(){ for t in /proc/$P/task/*; do echo "${t##*/} $(cut -d" " -f14,15 $t/stat) $(cat $t/comm)"; done; }
 snap > /data/local/tmp/s1; sleep 3; snap > /data/local/tmp/s2
 awk "NR==FNR{a[\$1]=\$2+\$3; next} {d=\$2+\$3-a[\$1]; if(d>10) printf \"%5.1f%% %s %s\n\", d/3, \$1, \$4}" /data/local/tmp/s1 /data/local/tmp/s2 | sort -rn | head -10 > /data/local/tmp/loads

@@ -54,6 +54,12 @@ public final class GameActivity extends SDLActivity {
             getWindow().setAttributes(attributes);
         }
         getWindow().addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON);
+        // Тестовый прогон автопилота (tools/autopilot.sh кладёт сценарий): игра включает экран и
+        // показывается поверх экрана блокировки, пока идёт прогон.
+        if (new java.io.File(new java.io.File(getFilesDir(), "game"), "autopilot.txt").isFile() && Build.VERSION.SDK_INT >= 27) {
+            setShowWhenLocked(true);
+            setTurnScreenOn(true);
+        }
         hideSystemBars();
         // Сенсорное управление поверх поверхности SDL (касания мимо элементов уходят в игру).
         if (mLayout != null) {
