@@ -44,7 +44,7 @@ public final class MainActivity extends Activity {
 
     @Override public void onCreate(Bundle state) {
         super.onCreate(state);
-        getWindow().getDecorView().setSystemUiVisibility(View.SYSTEM_UI_FLAG_FULLSCREEN | View.SYSTEM_UI_FLAG_HIDE_NAVIGATION | View.SYSTEM_UI_FLAG_IMMERSIVE_STICKY | View.SYSTEM_UI_FLAG_LAYOUT_STABLE);
+        hideSystemBars();
         // Хаб порта PvZ: Replanted: слева иконка, справа заголовок, статус, «Играть», папка дампа, настройки.
         final float dp = getResources().getDisplayMetrics().density;
         LinearLayout root = new LinearLayout(this);
@@ -73,6 +73,7 @@ public final class MainActivity extends Activity {
         root.addView(panel);
         homeView = root;
         settingsView = buildSettings();
+        keepOutOfCutout(homeView); keepOutOfCutout(settingsView);
         loadBackground();
         showSettings(state != null && state.getBoolean("settings", false));
         showStatus();
@@ -84,6 +85,31 @@ public final class MainActivity extends Activity {
             setTurnScreenOn(true);
         }
         if (state == null && autopilot && getIntent().getBooleanExtra("autostart", false) && start.isEnabled()) importAndStart();
+    }
+
+    @Override public void onWindowFocusChanged(boolean hasFocus) {
+        super.onWindowFocusChanged(hasFocus);
+        if (hasFocus) hideSystemBars();
+    }
+
+    // Лаунчер во весь экран телефона, как и игра: строка состояния и навигация скрыты, окно заходит под вырез камеры
+    // (тема Theme.Replanted), фон рисуется до краёв панели.
+    private void hideSystemBars() {
+        getWindow().getDecorView().setSystemUiVisibility(
+            View.SYSTEM_UI_FLAG_IMMERSIVE_STICKY | View.SYSTEM_UI_FLAG_FULLSCREEN | View.SYSTEM_UI_FLAG_HIDE_NAVIGATION
+            | View.SYSTEM_UI_FLAG_LAYOUT_STABLE | View.SYSTEM_UI_FLAG_LAYOUT_FULLSCREEN | View.SYSTEM_UI_FLAG_LAYOUT_HIDE_NAVIGATION);
+    }
+
+    // Кнопки и текст не под вырезом: к собственным отступам вида добавляется безопасная зона выреза.
+    private static void keepOutOfCutout(final View view) {
+        if (android.os.Build.VERSION.SDK_INT < 28) return;
+        final int left = view.getPaddingLeft(), top = view.getPaddingTop(), right = view.getPaddingRight(), bottom = view.getPaddingBottom();
+        view.setOnApplyWindowInsetsListener(new View.OnApplyWindowInsetsListener() { @Override public android.view.WindowInsets onApplyWindowInsets(View v, android.view.WindowInsets insets) {
+            android.view.DisplayCutout cutout = insets.getDisplayCutout();
+            if (cutout == null) v.setPadding(left, top, right, bottom);
+            else v.setPadding(left + cutout.getSafeInsetLeft(), top + cutout.getSafeInsetTop(), right + cutout.getSafeInsetRight(), bottom + cutout.getSafeInsetBottom());
+            return insets;
+        } });
     }
 
     // ---- Фон: размытая обложка игры (sce_sys/pic0.png из импортированного дампа; до импорта — иконка). ----

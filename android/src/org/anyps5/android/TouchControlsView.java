@@ -187,8 +187,8 @@ public final class TouchControlsView extends View {
         for (Control c : controls) {
             final float r = c.defaultSize * c.scale * u;
             c.radius = r;
-            c.cx = Math.max(r, Math.min(w - r, c.x * w));
-            c.cy = Math.max(r, Math.min(h - r, c.y * h));
+            c.cx = Math.max(safe.left + r, Math.min(w - safe.right - r, c.x * w));
+            c.cy = Math.max(safe.top + r, Math.min(h - safe.bottom - r, c.y * h));
             c.bounds.set(c.cx - r, c.cy - r, c.cx + r, c.cy + r);
         }
         text.setTextSize(5 * u);
@@ -197,6 +197,17 @@ public final class TouchControlsView extends View {
 
     @Override protected void onSizeChanged(int w, int h, int oldw, int oldh) {
         layoutControls();
+    }
+
+    // Окно заходит под вырез камеры: элементы держатся в его безопасной зоне.
+    private final android.graphics.Rect safe = new android.graphics.Rect();
+    @Override public android.view.WindowInsets onApplyWindowInsets(android.view.WindowInsets insets) {
+        android.view.DisplayCutout cutout = android.os.Build.VERSION.SDK_INT >= 28 ? insets.getDisplayCutout() : null;
+        if (cutout == null) safe.setEmpty();
+        else safe.set(cutout.getSafeInsetLeft(), cutout.getSafeInsetTop(), cutout.getSafeInsetRight(), cutout.getSafeInsetBottom());
+        layoutControls();
+        invalidate();
+        return super.onApplyWindowInsets(insets);
     }
 
     // ---- Отрисовка ----
