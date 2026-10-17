@@ -390,6 +390,9 @@ int SDL_main(int argc, char **argv) {
     setdefault("BOX64_DYNAREC_FASTROUND", "1");
     setdefault("BOX64_DYNAREC_FASTNAN", "1");
     setdefault("APS5_IGNORE_MSAA", "1");
+    // Касания — только сенсорное управление (геймпад игрока 1): SDL не делает из них мышь, иначе
+    // игра видела мышь вторым устройством ввода (второй игрок) при касании мимо кнопок.
+    setdefault("SDL_TOUCH_MOUSE_EVENTS", "0");
     setdefault("APS5_TEXTURE_CHECK_PER_FRAME", "1");
     setdefault("APS5_LOG_FPS", "1");
     // Кэш трансляции box64: в окне заставок половина главного потока — трансляция нового x86-кода.

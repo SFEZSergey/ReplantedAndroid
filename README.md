@@ -66,6 +66,14 @@ Get the APK from [Releases](https://github.com/SFEZSergey/ReplantedAndroid/relea
 Fine-tuning is done in `env.txt` inside the game folder (`files/game/env.txt`), one `NAME=value` per line
 (for example `APS5_FPS_LIMIT=45`, `APS5_NO_WORKER_AFFINITY=1`).
 
+## Known issues
+
+- **The level does not finish after the last zombie** (the reward bag or packet does not appear, the screen dims
+  only partly, plants can still be placed): if the cursor rests where the last zombie dies, it picks the reward
+  up while the reward is still loading (a short load that takes about a second here), and the level-end sequence
+  never completes. Move the cursor away before the last zombie dies and pick the reward up once it is shown.
+  The level's progress is kept; restart the game if it happens.
+
 ## Repository layout
 
 The emulator itself (AnyPS5) is written in C++ and lives in a submodule, so GitHub's language bar only shows this
