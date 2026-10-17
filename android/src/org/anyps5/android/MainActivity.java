@@ -44,6 +44,12 @@ public final class MainActivity extends Activity {
 
     @Override public void onCreate(Bundle state) {
         super.onCreate(state);
+        // Как в теме Theme.Replanted (на случай, если тема не подхвачена): окно и под вырезом камеры.
+        if (android.os.Build.VERSION.SDK_INT >= 28) {
+            android.view.WindowManager.LayoutParams attributes = getWindow().getAttributes();
+            attributes.layoutInDisplayCutoutMode = android.os.Build.VERSION.SDK_INT >= 30 ? android.view.WindowManager.LayoutParams.LAYOUT_IN_DISPLAY_CUTOUT_MODE_ALWAYS : android.view.WindowManager.LayoutParams.LAYOUT_IN_DISPLAY_CUTOUT_MODE_SHORT_EDGES;
+            getWindow().setAttributes(attributes);
+        }
         hideSystemBars();
         // Хаб порта PvZ: Replanted: слева иконка, справа заголовок, статус, «Играть», папка дампа, настройки.
         final float dp = getResources().getDisplayMetrics().density;
@@ -679,9 +685,16 @@ public final class MainActivity extends Activity {
 
     // Размер вывода в альбомной ориентации: экран, уменьшенный до заданной высоты (0 — без уменьшения).
     private String displaySize(int rows) {
-        android.util.DisplayMetrics metrics = new android.util.DisplayMetrics();
-        getWindowManager().getDefaultDisplay().getRealMetrics(metrics);
-        int width = Math.max(metrics.widthPixels, metrics.heightPixels), height = Math.min(metrics.widthPixels, metrics.heightPixels);
+        int width, height;
+        if (android.os.Build.VERSION.SDK_INT >= 30) {
+            // Вся панель, включая вырез (getRealMetrics на новых Android отдаёт область без выреза: 2344 вместо 2400).
+            android.graphics.Rect bounds = getWindowManager().getMaximumWindowMetrics().getBounds();
+            width = Math.max(bounds.width(), bounds.height()); height = Math.min(bounds.width(), bounds.height());
+        } else {
+            android.util.DisplayMetrics metrics = new android.util.DisplayMetrics();
+            getWindowManager().getDefaultDisplay().getRealMetrics(metrics);
+            width = Math.max(metrics.widthPixels, metrics.heightPixels); height = Math.min(metrics.widthPixels, metrics.heightPixels);
+        }
         if (rows > 0 && height > rows) { width = Math.round(width * (float) rows / height / 2) * 2; height = rows; }
         return width + "×" + height;
     }
@@ -832,7 +845,7 @@ public final class MainActivity extends Activity {
                     applyGameLanguage();
                         startActivity(new Intent(MainActivity.this, GameActivity.class));
                 }});
-            } catch (final Exception e) {
+            } catch (final Throwable e) {
                 runOnUiThread(new Runnable() { @Override public void run() {
                     status.setText(t("Импорт не удался:\n", "Import failed:\n") + e.getMessage()); start.setEnabled(true);
                 }});
@@ -849,31 +862,41 @@ public final class MainActivity extends Activity {
         InputStream in = new java.io.FileInputStream(f);
         try { return in.read()==0x54 && in.read()==0x14 && in.read()==0xf5 && in.read()==0xee; } finally { in.close(); }
     }
+    // Потоково, без чтения SELF в память: модули игры (Il2cppUserAssemblies.prx ~100 МБ) не помещаются в кучу Java
+    // (256 МБ) вместе с копией образа. Сегменты копируются с диска на диск, нули между ними — разреженный файл.
     private static void extractSelf(File source, File destination) throws Exception {
-        byte[] data = Files.readAllBytes(source.toPath());
-        if (data.length < 0x40 || (u64(data, 0) & 0xffffffffL) != 0xEEF51454L) throw new Exception("eboot.bin не является PS5 SELF");
-        int count=u16(data,0x18); long tableLong=0x20L+(long)count*0x20L;
-        if (tableLong+64>data.length) throw new Exception("Повреждена таблица сегментов SELF");
-        int table=(int)tableLong;
-        if (data[table]!=0x7f || data[table+1]!='E' || data[table+2]!='L' || data[table+3]!='F') throw new Exception("SELF зашифрован: внутри не найден ELF-заголовок");
-        long phoffLong=u64(data,table+32); int phentsize=u16(data,table+54), phnum=u16(data,table+56);
-        if (phentsize<56 || phoffLong<0 || phoffLong+(long)phentsize*phnum>data.length-table) throw new Exception("Повреждены ELF program headers внутри SELF");
-        int phoff=(int)phoffLong, headerSpan=phoff+phentsize*phnum; long maxSpan=headerSpan;
-        long[] offsets=new long[phnum], sizes=new long[phnum];
-        for(int i=0;i<phnum;i++){int h=table+phoff+i*phentsize;long off=u64(data,h+8),size=u64(data,h+32);if(off<0||size<0||off+size>Integer.MAX_VALUE)throw new Exception("SELF содержит неверные ELF offsets");offsets[i]=off;sizes[i]=size;maxSpan=Math.max(maxSpan,off+size);}
-        if(maxSpan>Integer.MAX_VALUE)throw new Exception("Извлечённый ELF слишком велик");
-        byte[] image=new byte[(int)maxSpan]; System.arraycopy(data,table,image,0,headerSpan); boolean placed=false;
-        for(int i=0;i<count;i++){
-            int entry=0x20+i*0x20;long flags=u64(data,entry),sourceOff=u64(data,entry+8),encoded=u64(data,entry+16),decoded=u64(data,entry+24);
-            if((flags&2)!=0)throw new Exception("SELF содержит сжатый сегмент; такой дамп пока не поддержан");
-            if(encoded!=decoded)throw new Exception("SELF содержит зашифрованный сегмент; нужен расшифрованный дамп");
-            if((flags&0x800)==0)continue;int index=(int)((flags>>>20)&0xfff);if(index>=phnum||sizes[index]==0)continue;
-            long amount=Math.min(sizes[index],decoded);if(sourceOff<0||sourceOff+amount>data.length||offsets[index]+amount>image.length)throw new Exception("Повреждены данные сегмента SELF");
-            System.arraycopy(data,(int)sourceOff,image,(int)offsets[index],(int)amount);placed=true;
+        File parent=destination.getParentFile();if(parent!=null)parent.mkdirs();
+        try(java.io.RandomAccessFile in=new java.io.RandomAccessFile(source,"r");java.io.RandomAccessFile out=new java.io.RandomAccessFile(destination,"rw")){
+            long length=in.length();
+            byte[] head=new byte[(int)Math.min(length,0x20)];in.readFully(head);
+            if (head.length < 0x20 || (u64(head, 0) & 0xffffffffL) != 0xEEF51454L) throw new Exception("eboot.bin не является PS5 SELF");
+            int count=u16(head,0x18); long tableLong=0x20L+(long)count*0x20L;
+            if (tableLong+64>length) throw new Exception("Повреждена таблица сегментов SELF");
+            int table=(int)tableLong;
+            byte[] data=new byte[table+64];in.seek(0);in.readFully(data);
+            if (data[table]!=0x7f || data[table+1]!='E' || data[table+2]!='L' || data[table+3]!='F') throw new Exception("SELF зашифрован: внутри не найден ELF-заголовок");
+            long phoffLong=u64(data,table+32); int phentsize=u16(data,table+54), phnum=u16(data,table+56);
+            if (phentsize<56 || phoffLong<0 || phoffLong+(long)phentsize*phnum>length-table) throw new Exception("Повреждены ELF program headers внутри SELF");
+            int phoff=(int)phoffLong, headerSpan=phoff+phentsize*phnum; long maxSpan=headerSpan;
+            byte[] header=new byte[headerSpan];in.seek(table);in.readFully(header);
+            long[] offsets=new long[phnum], sizes=new long[phnum];
+            for(int i=0;i<phnum;i++){int h=phoff+i*phentsize;long off=u64(header,h+8),size=u64(header,h+32);if(off<0||size<0||off+size>Integer.MAX_VALUE)throw new Exception("SELF содержит неверные ELF offsets");offsets[i]=off;sizes[i]=size;maxSpan=Math.max(maxSpan,off+size);}
+            if(maxSpan>Integer.MAX_VALUE)throw new Exception("Извлечённый ELF слишком велик");
+            out.setLength(0);out.setLength(maxSpan);out.seek(0);out.write(header);boolean placed=false;
+            java.nio.channels.FileChannel from=in.getChannel(), to=out.getChannel();
+            for(int i=0;i<count;i++){
+                int entry=0x20+i*0x20;long flags=u64(data,entry),sourceOff=u64(data,entry+8),encoded=u64(data,entry+16),decoded=u64(data,entry+24);
+                if((flags&2)!=0)throw new Exception("SELF содержит сжатый сегмент; такой дамп пока не поддержан");
+                if(encoded!=decoded)throw new Exception("SELF содержит зашифрованный сегмент; нужен расшифрованный дамп");
+                if((flags&0x800)==0)continue;int index=(int)((flags>>>20)&0xfff);if(index>=phnum||sizes[index]==0)continue;
+                long amount=Math.min(sizes[index],decoded);if(sourceOff<0||sourceOff+amount>length||offsets[index]+amount>maxSpan)throw new Exception("Повреждены данные сегмента SELF");
+                for(long done=0;done<amount;){long n=to.transferFrom(from.position(sourceOff+done),offsets[index]+done,amount-done);if(n<=0)throw new Exception("Не удалось скопировать сегмент SELF");done+=n;}
+                placed=true;
+            }
+            if(!placed)throw new Exception("SELF не содержит ELF-сегментов для извлечения");
+            byte[] type=new byte[2];out.seek(16);out.readFully(type);
+            if(u16(type,0)==0xfe18){putU16(type,0,3);out.seek(16);out.write(type);}
         }
-        if(!placed)throw new Exception("SELF не содержит ELF-сегментов для извлечения");
-        if(u16(image,16)==0xfe18)putU16(image,16,3);
-        File parent=destination.getParentFile();if(parent!=null)parent.mkdirs();FileOutputStream out=new FileOutputStream(destination);try{out.write(image);}finally{out.close();}
     }
     private static void extractSelfModules(File game) throws Exception {
         for(String dirName:new String[]{"sce_module","sce_modules","prx"}){File dir=new File(game,dirName);File[] modules=dir.listFiles();if(modules==null)continue;for(File module:modules){if(!module.isFile()||!isSelf(module))continue;File temp=new File(module.getParentFile(),module.getName()+".elftmp");extractSelf(module,temp);if(!module.delete()||!temp.renameTo(module))throw new Exception("Не удалось заменить SELF-модуль: "+module.getName());}}
