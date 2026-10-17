@@ -89,6 +89,7 @@ wrapper: the APK launcher (Java), the native entry point `sdl_main.c` and the bi
 | `external/box64` | submodule (C) — box64 fork, branch `android` (box64 as a library inside the APK, glibc compatibility on top of bionic, signals, DynaCache) |
 | `patches/mesa-26.3-android.patch` | Turnip: host-memory import through KGSL, linear gralloc swapchain buffers |
 | `patches/sdl2-android-udev-once.patch` | SDL2 (an AnyPS5 submodule) |
+| `patches/box64-android-hwcap.patch` | box64: CPU extensions (LSE atomics, FLAGM, FRINT, CRC32…) read through bionic's `getauxval`; without it the dynarec in the app saw ASIMD only |
 | `cmake/` | CMake toolchain files (bionic arm64 and x86-64 glibc), Meson cross file for Mesa, `box64-emu.sh` |
 | `compat/` | compatibility headers (ndk-shim, box64-android-compat) |
 
@@ -110,7 +111,7 @@ git -C external/AnyPS5/3rdparty/SDL2 apply ../../../../patches/sdl2-android-udev
 2. **AnyPS5, x86-64 PS5 libraries (PRX)** → `external/AnyPS5/build-x64s`: the same source with
    `cmake/x86_64-linux-gnu.cmake`; needs a Debian/Ubuntu x86-64 sysroot (`PVZ_SYSROOT_X86_64`) and box64 to
    run the x86 build tools (`PVZ_BOX64`, see `cmake/box64-emu.sh`).
-3. **box64** → `external/box64/build-lib`: `-DTERMUX=1 -DARM_DYNAREC=1 -DBOX64_SHARED_LIB=ON
+3. **box64** (with `git -C external/box64 apply ../../patches/box64-android-hwcap.patch`) → `external/box64/build-lib`: `-DTERMUX=1 -DARM_DYNAREC=1 -DBOX64_SHARED_LIB=ON
    -DCMAKE_BUILD_TYPE=RelWithDebInfo -DCMAKE_C_FLAGS="--target=aarch64-linux-android30 -fPIC -I$PWD/compat/box64-android-compat"`.
 4. **Mesa 26.3 (Turnip)**: the Mesa `26.3` branch + `patches/mesa-26.3-android.patch`, meson with
    `--cross-file cmake/mesa-android-cross.ini -Dbuildtype=release -Dvulkan-drivers=freedreno -Dgallium-drivers= -Dfreedreno-kmds=kgsl -Dplatforms=android -Dandroid-stub=true -Dandroid-libbacktrace=disabled -Dglx=disabled -Degl=disabled -Dgles1=disabled -Dgles2=disabled -Dopengl=false -Dllvm=disabled -Dzlib=enabled`
