@@ -51,26 +51,32 @@ public final class MainActivity extends Activity {
             getWindow().setAttributes(attributes);
         }
         hideSystemBars();
-        // Хаб порта PvZ: Replanted: слева иконка, справа заголовок, статус, «Играть», папка дампа, настройки.
+        migrateLibrary();
+        // Хаб: слева иконка выбранной игры, справа её название, статус, «Играть», библиотека игр, настройки.
         final float dp = getResources().getDisplayMetrics().density;
         LinearLayout root = new LinearLayout(this);
         root.setOrientation(LinearLayout.HORIZONTAL); root.setGravity(Gravity.CENTER); root.setPadding((int)(24*dp), (int)(12*dp), (int)(24*dp), (int)(12*dp));
         root.setBackground(new android.graphics.drawable.GradientDrawable(android.graphics.drawable.GradientDrawable.Orientation.TL_BR, new int[] {0xff1e4620, 0xff0f2a14}));
         android.widget.ImageView icon = new android.widget.ImageView(this);
-        icon.setImageDrawable(getApplicationInfo().loadIcon(getPackageManager()));
+        android.graphics.Bitmap gameIcon = null;
+        for (String path : new String[] {"sce_sys/icon0.png", "app0/sce_sys/icon0.png"}) {
+            File file = new File(activeGame(), path);
+            if (gameIcon == null && file.isFile()) gameIcon = android.graphics.BitmapFactory.decodeFile(file.getAbsolutePath());
+        }
+        if (gameIcon != null) icon.setImageBitmap(gameIcon); else icon.setImageDrawable(getApplicationInfo().loadIcon(getPackageManager()));
         LinearLayout.LayoutParams iconSize = new LinearLayout.LayoutParams((int)(112*dp), (int)(112*dp)); iconSize.rightMargin = (int)(24*dp);
         root.addView(icon, iconSize);
         LinearLayout panel = new LinearLayout(this); panel.setOrientation(LinearLayout.VERTICAL); panel.setGravity(Gravity.CENTER_VERTICAL);
-        TextView title = new TextView(this); title.setText("PvZ: Replanted"); title.setTextColor(0xfff1f8e9); title.setTextSize(28); title.setTypeface(android.graphics.Typeface.DEFAULT_BOLD); panel.addView(title);
-        TextView subtitle = new TextView(this); subtitle.setText(t("Порт с PS5 · AnyPS5 + box64 + Turnip", "PS5 port · AnyPS5 + box64 + Turnip")); subtitle.setTextColor(0xffa5d6a7); subtitle.setTextSize(12); panel.addView(subtitle);
+        TextView title = new TextView(this); String gameName = readTitleName(activeGame()); title.setText(gameName != null ? gameName : (activeId() != null ? activeId() : "AnyPS5")); title.setTextColor(0xfff1f8e9); title.setTextSize(28); title.setTypeface(android.graphics.Typeface.DEFAULT_BOLD); panel.addView(title);
+        TextView subtitle = new TextView(this); subtitle.setText((activeId() != null ? activeId() + " · " : "") + t("PS5 · AnyPS5 + box64 + Turnip", "PS5 · AnyPS5 + box64 + Turnip")); subtitle.setTextColor(0xffa5d6a7); subtitle.setTextSize(12); panel.addView(subtitle);
         status = new TextView(this); status.setTextColor(0xffdcedc8); status.setTextSize(13); status.setPadding(0, (int)(8*dp), 0, (int)(8*dp)); panel.addView(status);
         LinearLayout actions = new LinearLayout(this); actions.setOrientation(LinearLayout.HORIZONTAL); actions.setGravity(Gravity.CENTER_VERTICAL);
-        start = new Button(this); start.setText(t("Импорт и запуск", "Import and play")); styleButton(start, 0xff43a047, 18);
-        start.setOnClickListener(new View.OnClickListener() { @Override public void onClick(View v) { importAndStart(); } });
+        start = new Button(this); start.setText(t("Играть", "Play")); styleButton(start, 0xff43a047, 18);
+        start.setOnClickListener(new View.OnClickListener() { @Override public void onClick(View v) { importAndStart(false); } });
         LinearLayout.LayoutParams startSize = new LinearLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT); startSize.rightMargin = (int)(12*dp);
         actions.addView(start, startSize);
-        Button choose = new Button(this); choose.setText(t("Папка дампа", "Dump folder")); styleButton(choose, 0xff2e5e32, 14);
-        choose.setOnClickListener(new View.OnClickListener() { @Override public void onClick(View v) { chooseDirectory(); } }); actions.addView(choose);
+        Button library = new Button(this); library.setText(t("🎮 Игры", "🎮 Games")); styleButton(library, 0xff2e5e32, 14);
+        library.setOnClickListener(new View.OnClickListener() { @Override public void onClick(View v) { showLibrary(); } }); actions.addView(library);
         Button settings = new Button(this); settings.setText(t("⚙ Настройки", "⚙ Settings")); styleButton(settings, 0xff2e5e32, 14);
         settings.setOnClickListener(new View.OnClickListener() { @Override public void onClick(View v) { showSettings(true); } });
         LinearLayout.LayoutParams settingsSize = new LinearLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT); settingsSize.leftMargin = (int)(12*dp);
@@ -90,7 +96,7 @@ public final class MainActivity extends Activity {
             setShowWhenLocked(true);
             setTurnScreenOn(true);
         }
-        if (state == null && autopilot && getIntent().getBooleanExtra("autostart", false) && start.isEnabled()) importAndStart();
+        if (state == null && autopilot && getIntent().getBooleanExtra("autostart", false) && start.isEnabled()) importAndStart(false);
     }
 
     @Override public void onWindowFocusChanged(boolean hasFocus) {
@@ -606,8 +612,9 @@ public final class MainActivity extends Activity {
         return box;
     }
 
-    // Настройки хаба — <game>/launcher.env (NAME=1), libmain читает его до env.txt.
-    private File launcherEnv() { return new File(new File(getFilesDir(), "game"), "launcher.env"); }
+    // Настройки хаба — files/launcher.env (NAME=1), общие для всех игр; в папке каждой игры — ссылка launcher.env на
+    // него: libmain читает <game>/launcher.env до env.txt.
+    private File launcherEnv() { return new File(getFilesDir(), "launcher.env"); }
     private String launcherValue(String name) {
         try { for (String line : Files.readAllLines(launcherEnv().toPath())) if (line.startsWith(name + "=")) return line.substring(name.length() + 1); } catch (Exception ignored) {}
         return null;
@@ -641,24 +648,125 @@ public final class MainActivity extends Activity {
     }
 
     private String selectedTree() { return getPreferences(MODE_PRIVATE).getString("game_tree", null); }
-    // Выбран другой дамп вместо импортированной игры: следующий запуск импортирует его заново.
-    private boolean importPending() { return selectedTree() != null && getPreferences(MODE_PRIVATE).getBoolean("import_pending", false); }
     private void showStatus() {
-        String saved = selectedTree();
-        File gameDir = new File(getFilesDir(), "game");
-        if (importPending()) {
-            status.setText(t("Будет импортирована папка: ", "Folder to import: ") + Uri.parse(saved).getLastPathSegment() + "\n" + runtimeStatus());
-            start.setText(t("Импорт и запуск", "Import and play")); start.setEnabled(true); return;
-        }
+        File gameDir = activeGame();
         if (new File(gameDir, "app.elf").isFile() && new File(gameDir, "libs").isDirectory()) {
             status.setText(t("Игра готова", "Game is ready") + "\n" + runtimeStatus());
             start.setText(t("Играть", "Play")); start.setEnabled(true); return;
         }
-        boolean dumpReady = new File(gameDir, "eboot.bin").isFile();
-        String source = dumpReady ? t("Дамп уже в папке игры; копировать заново не нужно", "The dump is already in the game folder; no copy needed") :
-                (saved == null ? t("Выберите папку дампа (где лежит eboot.bin)", "Pick the dump folder (the one with eboot.bin)") : t("Папка: ", "Folder: ") + Uri.parse(saved).getLastPathSegment());
-        status.setText(source + "\n" + runtimeStatus());
-        start.setEnabled(dumpReady || saved != null);
+        if (new File(gameDir, "eboot.bin").isFile()) {
+            status.setText(t("Дамп скопирован, подготовка не закончена", "The dump is copied, preparation is not finished") + "\n" + runtimeStatus());
+            start.setText(t("Продолжить импорт", "Continue the import")); start.setEnabled(true); return;
+        }
+        status.setText(t("Игр пока нет: «Игры» → «Добавить игру» и папка дампа (где лежит eboot.bin)", "No games yet: Games → Add a game, then the dump folder (the one with eboot.bin)") + "\n" + runtimeStatus());
+        start.setText(t("Играть", "Play")); start.setEnabled(false);
+    }
+
+    // ---- Библиотека игр: files/games/<ID игры>, files/game — ссылка на выбранную (её и запускает GameActivity). ----
+    private File gamesDir() { return new File(getFilesDir(), "games"); }
+    private File activeGame() { return new File(getFilesDir(), "game"); }
+    private String activeId() {
+        try { return Files.readSymbolicLink(activeGame().toPath()).getFileName().toString(); } catch (Exception e) { return null; }
+    }
+    private static JSONObject readParam(File dir) {
+        for (String path : new String[] {"sce_sys/param.json", "app0/sce_sys/param.json", "dump/sce_sys/param.json"}) {
+            try { return new JSONObject(new String(Files.readAllBytes(new File(dir, path).toPath()), "UTF-8")); } catch (Exception ignored) {}
+        }
+        return null;
+    }
+    private static String readTitleId(File dir) {
+        JSONObject param = readParam(dir);
+        String id = param == null ? "" : param.optString("titleId", "").replaceAll("[^A-Za-z0-9_-]", "");
+        return id.isEmpty() ? null : id;
+    }
+    // Название игры: titleName языка по умолчанию из localizedParameters.
+    private static String readTitleName(File dir) {
+        JSONObject param = readParam(dir);
+        JSONObject localized = param == null ? null : param.optJSONObject("localizedParameters");
+        if (localized == null) return null;
+        JSONObject language = localized.optJSONObject(localized.optString("defaultLanguage", "en-US"));
+        if (language == null) language = localized.optJSONObject("en-US");
+        String name = language == null ? "" : language.optString("titleName", "").trim();
+        return name.isEmpty() ? null : name;
+    }
+    private java.util.List<File> games() {
+        java.util.List<File> list = new java.util.ArrayList<>();
+        File[] entries = gamesDir().listFiles();
+        if (entries != null) for (File entry : entries) if (!entry.getName().startsWith(".") && entry.isDirectory()) list.add(entry);
+        java.util.Collections.sort(list);
+        return list;
+    }
+    private void activate(String id) throws Exception {
+        File link = activeGame();
+        if (Files.exists(link.toPath(), java.nio.file.LinkOption.NOFOLLOW_LINKS) && !Files.isSymbolicLink(link.toPath())) throw new Exception("files/game не является ссылкой");
+        Files.deleteIfExists(link.toPath());
+        if (id == null) return;
+        Os.symlink("games/" + id, link.getAbsolutePath());
+        File env = new File(new File(gamesDir(), id), "launcher.env");
+        if (!Files.isSymbolicLink(env.toPath())) { Files.deleteIfExists(env.toPath()); Os.symlink("../../launcher.env", env.getAbsolutePath()); }
+    }
+    // Раньше игра лежала прямо в files/game: она переезжает в files/games/<ID> (относительные ссылки внутри остаются
+    // верными), её launcher.env становится общим.
+    private void migrateLibrary() {
+        File old = activeGame();
+        if (Files.isSymbolicLink(old.toPath()) || !old.isDirectory()) return;
+        try {
+            File env = new File(old, "launcher.env");
+            if (env.isFile() && !launcherEnv().exists()) Files.move(env.toPath(), launcherEnv().toPath()); else Files.deleteIfExists(env.toPath());
+            String[] rest = old.list();
+            if (rest == null || rest.length == 0) { old.delete(); return; }
+            String id = readTitleId(old); if (id == null) id = "game";
+            gamesDir().mkdirs();
+            File target = new File(gamesDir(), id);
+            if (target.exists()) clearDirectory(target);
+            Files.move(old.toPath(), target.toPath());
+            activate(id);
+        } catch (Exception e) { notice(t("Не удалось перенести игру в библиотеку: ", "Could not move the game into the library: ") + e.getMessage()); }
+    }
+    private boolean refreshOnReturn;
+    @Override protected void onRestart() {
+        super.onRestart();
+        if (refreshOnReturn) { refreshOnReturn = false; recreate(); }
+    }
+    private void showLibrary() {
+        final java.util.List<File> list = games();
+        final String active = activeId();
+        AlertDialog.Builder dialog = new AlertDialog.Builder(this).setTitle(t("Игры", "Games"));
+        if (list.isEmpty()) dialog.setMessage(t("Игр пока нет. Добавьте расшифрованный дамп игры PS5 — папку, где лежит eboot.bin.", "No games yet. Add a decrypted PS5 game dump: the folder with eboot.bin."));
+        else {
+            String[] labels = new String[list.size()];
+            for (int i = 0; i < labels.length; i++) {
+                String name = readTitleName(list.get(i));
+                labels[i] = (list.get(i).getName().equals(active) ? "✓ " : "    ") + (name != null ? name + "  ·  " : "") + list.get(i).getName();
+            }
+            dialog.setItems(labels, new DialogInterface.OnClickListener() { @Override public void onClick(DialogInterface d, int which) { gameActions(list.get(which)); } });
+        }
+        dialog.setPositiveButton(t("+ Добавить игру", "+ Add a game"), new DialogInterface.OnClickListener() { @Override public void onClick(DialogInterface d, int w) { chooseDirectory(); } })
+            .setNegativeButton(t("Закрыть", "Close"), null).show();
+    }
+    private void gameActions(final File dir) {
+        String name = readTitleName(dir);
+        new AlertDialog.Builder(this).setTitle(name != null ? name : dir.getName())
+            .setItems(new String[] {t("Выбрать", "Select"), t("Удалить из приложения", "Remove from the app")}, new DialogInterface.OnClickListener() { @Override public void onClick(DialogInterface d, int which) {
+                if (which == 0) {
+                    try { activate(dir.getName()); } catch (Exception e) { notice(t("Не удалось выбрать игру: ", "Could not select the game: ") + e.getMessage()); return; }
+                    recreate();
+                } else confirmRemove(dir);
+            } }).show();
+    }
+    private void confirmRemove(final File dir) {
+        new AlertDialog.Builder(this).setTitle(t("Удалить игру?", "Remove the game?"))
+            .setMessage(t("Игра и её сохранения будут удалены из приложения. Дамп на телефоне останется, его можно добавить снова.", "The game and its saves are removed from the app. The dump on the phone stays and can be added again."))
+            .setPositiveButton(t("Удалить", "Remove"), new DialogInterface.OnClickListener() { @Override public void onClick(DialogInterface d, int w) {
+                boolean wasActive = dir.getName().equals(activeId());
+                clearDirectory(dir);
+                if (wasActive) {
+                    java.util.List<File> left = games();
+                    try { activate(left.isEmpty() ? null : left.get(0).getName()); } catch (Exception ignored) {}
+                }
+                recreate();
+            } })
+            .setNegativeButton(t("Отмена", "Cancel"), null).show();
     }
     private void chooseDirectory() {
         Intent i = new Intent(Intent.ACTION_OPEN_DOCUMENT_TREE);
@@ -679,19 +787,8 @@ public final class MainActivity extends Activity {
             Uri uri = data.getData();
             int flags = data.getFlags() & (Intent.FLAG_GRANT_READ_URI_PERMISSION | Intent.FLAG_GRANT_WRITE_URI_PERMISSION);
             getContentResolver().takePersistableUriPermission(uri, flags);
-            final String tree = uri.toString();
-            // Уже импортирована игра: другой дамп заменит её при следующем запуске (папка дампа на телефоне не трогается).
-            if (new File(new File(getFilesDir(), "game"), "eboot.bin").isFile() && !tree.equals(selectedTree())) {
-                new AlertDialog.Builder(this).setTitle(t("Заменить игру?", "Replace the game?"))
-                    .setMessage(t("Импортированная игра будет удалена из приложения и заменена дампом из выбранной папки. Сам дамп на телефоне останется, его можно импортировать снова.",
-                        "The imported game will be removed from the app and replaced with the dump from the chosen folder. The dump itself stays on the phone and can be imported again."))
-                    .setPositiveButton(t("Заменить", "Replace"), new DialogInterface.OnClickListener() { @Override public void onClick(DialogInterface d, int w) {
-                        getPreferences(MODE_PRIVATE).edit().putString("game_tree", tree).putBoolean("import_pending", true).apply(); showStatus();
-                    } })
-                    .setNegativeButton(t("Отмена", "Cancel"), null).show();
-                return;
-            }
-            getPreferences(MODE_PRIVATE).edit().putString("game_tree", tree).apply(); showStatus();
+            getPreferences(MODE_PRIVATE).edit().putString("game_tree", uri.toString()).apply();
+            importAndStart(true);
         }
     }
 
@@ -794,15 +891,15 @@ public final class MainActivity extends Activity {
         return b.toString();
     }
 
-    private void importAndStart() {
+    // fresh — добавить игру из выбранной папки дампа (game_tree); иначе запустить выбранную или доделать её импорт.
+    private void importAndStart(final boolean fresh) {
         final String value = selectedTree();
         final File game = new File(getFilesDir(), "game");
         if (new File(game, "app.elf").isFile() && new File(game, "libs").isDirectory() && new File(game, "eboot.bin").isFile() && (hasUnlinkedGameModules(game) || staleRelinkLayout(game))) {
             // app.elf собран без модулей игры из Media или по старой раскладке: перелинковка заново из eboot.bin.
             new File(game, "app.elf").delete();
         }
-        final boolean replace = importPending();
-        if (!replace && new File(game, "app.elf").isFile() && new File(game, "libs").isDirectory()) {
+        if (!fresh && new File(game, "app.elf").isFile() && new File(game, "libs").isDirectory()) {
             // Готовая раскладка (app.elf + libs): запуск без импорта, рантайм обновляется после обновления APK.
             start.setEnabled(false);
             status.setText(t("Проверяю рантайм…", "Checking the runtime…"));
@@ -822,25 +919,35 @@ public final class MainActivity extends Activity {
             }}).start();
             return;
         }
-        final boolean dumpAlreadyPresent = !replace && new File(game, "eboot.bin").isFile();
-        if (!dumpAlreadyPresent && value == null) return;
+        final boolean dumpAlreadyPresent = !fresh && new File(game, "eboot.bin").isFile();
+        if (!dumpAlreadyPresent && (!fresh || value == null)) return;
         start.setEnabled(false);
         status.setText(dumpAlreadyPresent ? t("Дамп найден в папке игры; использую имеющиеся файлы…", "Dump found in the game folder; using the existing files…") : t("Копирую папку игры… Это может занять несколько минут.", "Copying the game folder… This can take a few minutes."));
         new Thread(new Runnable() { @Override public void run() {
             try {
                 if (!dumpAlreadyPresent) {
-                    // Настройки хаба переживают очистку папки игры.
-                    byte[] settings = null;
-                    try { settings = Files.readAllBytes(launcherEnv().toPath()); } catch (Exception ignored) {}
-                    clearDirectory(game); game.mkdirs();
-                    if (settings != null) Files.write(launcherEnv().toPath(), settings);
+                    // Новая игра: копия в games/.importing, затем games/<ID из param.json> (та же игра заменяется),
+                    // и она становится выбранной (files/game).
+                    File staging = new File(gamesDir(), ".importing");
+                    clearDirectory(staging); staging.mkdirs();
                     // Accept the selected dump directly; if the saved SAF selection is
                     // its parent, import only the immediate child named "dump".
                     Uri tree = Uri.parse(value);
                     String rootId = DocumentsContract.getTreeDocumentId(tree);
                     String dumpId = findDumpDocument(tree, rootId);
-                    copyTree(tree, dumpId == null ? rootId : dumpId, game);
-                    getPreferences(MODE_PRIVATE).edit().putBoolean("import_pending", false).apply();
+                    copyTree(tree, dumpId == null ? rootId : dumpId, staging);
+                    if (!new File(staging, "eboot.bin").isFile()) { clearDirectory(staging); throw new Exception(t("В выбранной папке не найден eboot.bin. Выберите сам каталог дампа.", "No eboot.bin in the chosen folder. Pick the dump folder itself.")); }
+                    String id = readTitleId(staging);
+                    if (id == null) id = "game-" + (System.currentTimeMillis() / 1000);
+                    File target = new File(gamesDir(), id);
+                    // Та же игра заново: её сохранения и загруженные данные переходят в новую копию.
+                    for (String kept : new String[] {"_sd", "_sd_mem", "download0"}) {
+                        File old = new File(target, kept), copy = new File(staging, kept);
+                        if (old.exists() && !copy.exists()) Files.move(old.toPath(), copy.toPath());
+                    }
+                    clearDirectory(target);
+                    if (!staging.renameTo(target)) throw new Exception("Не удалось перенести игру в games/" + id);
+                    activate(id);
                 }
                 File self = new File(game, "eboot.bin");
                 if (!self.isFile()) throw new Exception("В выбранной папке не найден eboot.bin. Выбери сам каталог дампа.");
@@ -863,8 +970,10 @@ public final class MainActivity extends Activity {
                 copyPackagedRuntime("runtime/x64lib", new File(game, "x64lib"));
                 Files.write(new File(game, ".runtime-stamp").toPath(), Long.toString(getPackageManager().getPackageInfo(getPackageName(), 0).lastUpdateTime).getBytes());
                 runOnUiThread(new Runnable() { @Override public void run() {
+                    // Новая игра — новые название, обложка и языки на главном экране, когда игрок вернётся.
+                    if (fresh) refreshOnReturn = true;
                     applyGameLanguage();
-                        startActivity(new Intent(MainActivity.this, GameActivity.class));
+                    startActivity(new Intent(MainActivity.this, GameActivity.class));
                 }});
             } catch (final Throwable e) {
                 runOnUiThread(new Runnable() { @Override public void run() {
