@@ -44,7 +44,7 @@ public final class MainActivity extends Activity {
 
     @Override public void onCreate(Bundle state) {
         super.onCreate(state);
-        getWindow().getDecorView().setSystemUiVisibility(View.SYSTEM_UI_FLAG_FULLSCREEN | View.SYSTEM_UI_FLAG_HIDE_NAVIGATION | View.SYSTEM_UI_FLAG_IMMERSIVE_STICKY | View.SYSTEM_UI_FLAG_LAYOUT_STABLE);
+        hideSystemBars();
         // Хаб порта PvZ: Replanted: слева иконка, справа заголовок, статус, «Играть», папка дампа, настройки.
         final float dp = getResources().getDisplayMetrics().density;
         LinearLayout root = new LinearLayout(this);
@@ -73,6 +73,7 @@ public final class MainActivity extends Activity {
         root.addView(panel);
         homeView = root;
         settingsView = buildSettings();
+        keepOutOfCutout(homeView); keepOutOfCutout(settingsView);
         loadBackground();
         showSettings(state != null && state.getBoolean("settings", false));
         showStatus();
@@ -84,6 +85,31 @@ public final class MainActivity extends Activity {
             setTurnScreenOn(true);
         }
         if (state == null && autopilot && getIntent().getBooleanExtra("autostart", false) && start.isEnabled()) importAndStart();
+    }
+
+    @Override public void onWindowFocusChanged(boolean hasFocus) {
+        super.onWindowFocusChanged(hasFocus);
+        if (hasFocus) hideSystemBars();
+    }
+
+    // Лаунчер во весь экран телефона, как и игра: строка состояния и навигация скрыты, окно заходит под вырез камеры
+    // (тема Theme.Replanted), фон рисуется до краёв панели.
+    private void hideSystemBars() {
+        getWindow().getDecorView().setSystemUiVisibility(
+            View.SYSTEM_UI_FLAG_IMMERSIVE_STICKY | View.SYSTEM_UI_FLAG_FULLSCREEN | View.SYSTEM_UI_FLAG_HIDE_NAVIGATION
+            | View.SYSTEM_UI_FLAG_LAYOUT_STABLE | View.SYSTEM_UI_FLAG_LAYOUT_FULLSCREEN | View.SYSTEM_UI_FLAG_LAYOUT_HIDE_NAVIGATION);
+    }
+
+    // Кнопки и текст не под вырезом: к собственным отступам вида добавляется безопасная зона выреза.
+    private static void keepOutOfCutout(final View view) {
+        if (android.os.Build.VERSION.SDK_INT < 28) return;
+        final int left = view.getPaddingLeft(), top = view.getPaddingTop(), right = view.getPaddingRight(), bottom = view.getPaddingBottom();
+        view.setOnApplyWindowInsetsListener(new View.OnApplyWindowInsetsListener() { @Override public android.view.WindowInsets onApplyWindowInsets(View v, android.view.WindowInsets insets) {
+            android.view.DisplayCutout cutout = insets.getDisplayCutout();
+            if (cutout == null) v.setPadding(left, top, right, bottom);
+            else v.setPadding(left + cutout.getSafeInsetLeft(), top + cutout.getSafeInsetTop(), right + cutout.getSafeInsetRight(), bottom + cutout.getSafeInsetBottom());
+            return insets;
+        } });
     }
 
     // ---- Фон: размытая обложка игры (sce_sys/pic0.png из импортированного дампа; до импорта — иконка). ----
@@ -740,6 +766,10 @@ public final class MainActivity extends Activity {
     private void importAndStart() {
         final String value = selectedTree();
         final File game = new File(getFilesDir(), "game");
+        if (new File(game, "app.elf").isFile() && new File(game, "libs").isDirectory() && new File(game, "eboot.bin").isFile() && hasUnlinkedGameModules(game)) {
+            // app.elf собран без модулей игры из Media (старый импорт): перелинковка заново из eboot.bin.
+            new File(game, "app.elf").delete();
+        }
         if (new File(game, "app.elf").isFile() && new File(game, "libs").isDirectory()) {
             // Готовая раскладка (app.elf + libs): запуск без импорта, рантайм обновляется после обновления APK.
             start.setEnabled(false);
@@ -785,6 +815,7 @@ public final class MainActivity extends Activity {
                 if (!executable.isFile()) {
                     statusOnUi(t("Извлекаю ELF из eboot.bin…", "Extracting the ELF from eboot.bin…"));
                     extractSelf(self, new File(game, "eboot.elf"));
+                    stageGameModules(game);
                     extractSelfModules(game);
                     statusOnUi(t("Запускаю AnyPS5 relinker…", "Running the AnyPS5 relinker…"));
                     runRelinker(game);
@@ -867,19 +898,55 @@ public final class MainActivity extends Activity {
             catch(Exception e){throw new Exception("Не удалось подключить ресурс "+name+" в app0: "+e.getMessage());}
         }
     }
+    // Модули игры (Media/Modules, Media/Plugins: Il2cppUserAssemblies.prx, PS5Util.prx) relinker берёт только из
+    // <game>/prx и собирает в app0/prx/<имя>.guest.prx; app.elf привязывается к их экспортам (#guest). Без этого
+    // app.elf ищет эти NID без суффикса и вызывает пустые слоты (strlen(NULL) при старте).
+    private static boolean isGameModule(File file) {
+        String name = file.getName();
+        return name.endsWith(".prx") && !name.endsWith(".guest.prx") && !Files.isSymbolicLink(file.toPath()) && file.isFile();
+    }
+    private static boolean hasUnlinkedGameModules(File game) {
+        for (String folder : new String[] {"Modules", "Plugins"}) {
+            File[] entries = new File(new File(game, "Media"), folder).listFiles();
+            if (entries != null) for (File entry : entries) if (isGameModule(entry)) return true;
+        }
+        return false;
+    }
+    private static void stageGameModules(File game) throws Exception {
+        File prx = new File(game, "prx");
+        for (String folder : new String[] {"Modules", "Plugins"}) {
+            File[] entries = new File(new File(game, "Media"), folder).listFiles();
+            if (entries == null) continue;
+            for (File entry : entries) {
+                if (!isGameModule(entry)) continue;
+                if (!prx.isDirectory() && !prx.mkdirs()) throw new Exception("Не удалось создать prx");
+                File target = new File(prx, entry.getName());
+                if (target.exists() && !target.delete()) throw new Exception("Не удалось заменить модуль " + target.getName());
+                if (!entry.renameTo(target)) throw new Exception("Не удалось перенести модуль " + entry.getName() + " в prx");
+                // Игра грузит модуль по пути /app0/Media/...: ссылка на результат relinker (появится после него).
+                Os.symlink("../../app0/prx/" + entry.getName() + ".guest.prx", entry.getAbsolutePath());
+            }
+        }
+    }
+    // После relinker: libs/<имя> (как и Media/<папка>/<имя>) ведёт на app0/prx/<имя>.guest.prx — один и тот же файл и
+    // для DT_NEEDED app.elf, и для загрузки модуля игрой по пути /app0/Media/... Старые <имя>.guest.prx в Media (артефакты
+    // другой сборки с другим набором экспортов) удаляются: загрузчик AnyPS5 предпочёл бы их.
     private void linkGuestPrxLibraries(File game) throws Exception {
         File libs=new File(game,"libs");libs.mkdirs();
+        File[] built=new File(new File(game,"app0"),"prx").listFiles();
         for(String folder:new String[]{"Modules","Plugins"}){
             File dir=new File(new File(game,"Media"),folder);File[] entries=dir.listFiles();if(entries==null)continue;
-            for(File guest:entries){String filename=guest.getName();String suffix=".guest.prx";if(!guest.isFile()||!filename.endsWith(suffix))continue;
-                String libraryName=filename.substring(0,filename.length()-suffix.length());File link=new File(libs,libraryName);
-                String target="../Media/"+folder+"/"+filename;
-                try{
-                    if(Files.isSymbolicLink(link.toPath())){if(target.equals(Files.readSymbolicLink(link.toPath()).toString()))continue;Files.delete(link.toPath());}
-                    else if(Files.exists(link.toPath(),java.nio.file.LinkOption.NOFOLLOW_LINKS))continue;
-                    Os.symlink(target,link.getAbsolutePath());
-                }catch(Exception e){throw new Exception("Не удалось подключить guest PRX "+filename+": "+e.getMessage());}
-            }
+            for(File stale:entries)if(stale.getName().endsWith(".guest.prx"))Files.deleteIfExists(stale.toPath());
+        }
+        if(built==null)return;
+        for(File guest:built){String filename=guest.getName();String suffix=".guest.prx";if(!guest.isFile()||!filename.endsWith(suffix))continue;
+            String libraryName=filename.substring(0,filename.length()-suffix.length());
+            File link=new File(libs,libraryName);String target="../app0/prx/"+filename;
+            try{
+                if(Files.isSymbolicLink(link.toPath())&&target.equals(Files.readSymbolicLink(link.toPath()).toString()))continue;
+                Files.deleteIfExists(link.toPath());
+                Os.symlink(target,link.getAbsolutePath());
+            }catch(Exception e){throw new Exception("Не удалось подключить guest PRX "+filename+": "+e.getMessage());}
         }
     }
     private void statusOnUi(final String message) { runOnUiThread(new Runnable(){@Override public void run(){status.setText(message);}}); }
