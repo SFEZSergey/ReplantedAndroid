@@ -59,7 +59,9 @@
     (root не нужен). Приложите его к [отчёту об ошибке](https://github.com/SFEZSergey/ReplantedAndroid/issues/new/choose).
 
 Тонкие настройки — файл `env.txt` в папке игры (`files/game/env.txt`), строки `ИМЯ=значение`
-(например `APS5_FPS_LIMIT=45`, `APS5_NO_WORKER_AFFINITY=1`).
+(например `APS5_FPS_LIMIT=45`, `APS5_NO_WORKER_AFFINITY=1`). Выключатели новых оптимизаций, если с ними что-то
+не так: `BOX64_APS5_NATIVE=0` (без нативной замены функций libc игры), `APS5_ADPF=0` (без подсказок
+производительности Android), `TU_AUTOTUNE_ALGO=bandwidth` (выбор режима проходов Turnip по умолчанию).
 
 ## Известные проблемы
 

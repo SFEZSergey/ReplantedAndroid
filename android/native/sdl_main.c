@@ -238,6 +238,8 @@ static void *watchdog(void *arg) {
 
 // Сэмплер (APS5_SAMPLE=1): каждые 2 мс сигнал главному потоку; обработчик переводит нативный PC в
 // x86-адрес начала блока box64 (box64_native_to_x64). Каждые 5 с — топ адресов в sample.log.
+// APS5_SAMPLE=<начало имени потока> (например Job.Worker): по очереди все потоки с таким именем,
+// список обновляется каждое окно (потоки игры появляются позже).
 extern void *box64_native_to_x64(void *pc);
 extern void box64_save_dynacache(void);
 
@@ -257,6 +259,27 @@ static void *dynacache_saver(void *arg) {
 static uintptr_t sample_ring[SAMPLE_RING];
 static volatile unsigned sample_head;
 static pid_t sample_tid;
+static const char *sample_prefix;
+
+// Потоки процесса, чьё имя начинается с sample_prefix (не больше max).
+static int sample_threads(pid_t *tids, int max) {
+    DIR *dir = opendir("/proc/self/task");
+    if (dir == NULL) return 0;
+    int count = 0;
+    struct dirent *entry;
+    while (count < max && (entry = readdir(dir)) != NULL) {
+        if (entry->d_name[0] < '0' || entry->d_name[0] > '9') continue;
+        char path[64], name[32] = "";
+        snprintf(path, sizeof(path), "/proc/self/task/%s/comm", entry->d_name);
+        FILE *comm = fopen(path, "r");
+        if (comm == NULL) continue;
+        if (fgets(name, sizeof(name), comm) == NULL) name[0] = '\0';
+        fclose(comm);
+        if (strncmp(name, sample_prefix, strlen(sample_prefix)) == 0) tids[count++] = (pid_t)atoi(entry->d_name);
+    }
+    closedir(dir);
+    return count;
+}
 
 static void sample_handler(int sig, siginfo_t *info, void *raw) {
     (void)sig; (void)info;
@@ -285,8 +308,12 @@ static void *sampler(void *arg) {
     sleep(5); // box64 должен успеть инициализироваться
     unsigned taken = __atomic_load_n(&sample_head, __ATOMIC_RELAXED);
     for (int window = 0;; ++window) {
+        pid_t tids[64];
+        int threads = 1;
+        tids[0] = sample_tid;
+        if (sample_prefix != NULL) threads = sample_threads(tids, 64);
         for (int i = 0; i < 2500; ++i) {
-            syscall(SYS_tgkill, getpid(), sample_tid, SIGRTMIN + 18);
+            if (threads > 0) syscall(SYS_tgkill, getpid(), tids[i % threads], SIGRTMIN + 18);
             usleep(2000);
         }
         unsigned head = __atomic_load_n(&sample_head, __ATOMIC_RELAXED);
@@ -305,7 +332,7 @@ static void *sampler(void *arg) {
             ++bins[j].count; ++total;
         }
         qsort(bins, used, sizeof(bins[0]), sample_cmp);
-        fprintf(out, "== window %d (%.0f s), samples %u\n", window, (window + 1) * 5.0, total);
+        fprintf(out, "== window %d (%.0f s), samples %u, threads %d %s\n", window, (window + 1) * 5.0, total, threads, sample_prefix != NULL ? sample_prefix : "main");
         for (int j = 0; j < used && j < 40; ++j) {
             if (bins[j].key >> 63) {
                 Dl_info dl;
@@ -317,6 +344,115 @@ static void *sampler(void *arg) {
             }
         }
         fflush(out);
+    }
+    return NULL;
+}
+
+// ADPF (Android 12+, APS5_ADPF=0 — выкл.): сессия подсказок производительности над ключевыми потоками
+// игры — главный поток (самый загруженный "app.elf"), рендер-поток Unity, очередь и запись драйвера,
+// presenter. Каждые 50 мс система получает, сколько процессорного времени съел самый загруженный из
+// них (schedstat), при цели 75% окна: частоты и ядра она подбирает сама — поднимает, когда поток не
+// успевает, и не держит лишнего, когда запас есть (так делают Unity/Unreal на Android).
+typedef void *(*adpf_manager_fn)(void);
+typedef void *(*adpf_create_fn)(void *, const int32_t *, size_t, int64_t);
+typedef int (*adpf_report_fn)(void *, int64_t);
+typedef int (*adpf_target_fn)(void *, int64_t);
+typedef int (*adpf_threads_fn)(void *, const pid_t *, size_t);
+typedef void (*adpf_close_fn)(void *);
+
+static uint64_t adpf_runtime(pid_t tid) {
+    char path[64];
+    snprintf(path, sizeof(path), "/proc/self/task/%d/schedstat", tid);
+    FILE *f = fopen(path, "r");
+    if (f == NULL) return 0;
+    unsigned long long runtime = 0;
+    if (fscanf(f, "%llu", &runtime) != 1) runtime = 0;
+    fclose(f);
+    return runtime;
+}
+
+// Ключевые потоки: по одному на имя, для "app.elf" — с наибольшим временем (главный поток игры).
+static int adpf_threads(pid_t *tids, int max) {
+    static const char *const names[] = {"UnityGfxDe", "agc-queue-worke", "agc-draw-record", "agc-presenter"};
+    DIR *dir = opendir("/proc/self/task");
+    if (dir == NULL) return 0;
+    int count = 0;
+    pid_t main_tid = 0;
+    uint64_t main_runtime = 0;
+    struct dirent *entry;
+    while ((entry = readdir(dir)) != NULL) {
+        if (entry->d_name[0] < '0' || entry->d_name[0] > '9') continue;
+        const pid_t tid = (pid_t)atoi(entry->d_name);
+        char path[64], name[32] = "";
+        snprintf(path, sizeof(path), "/proc/self/task/%d/comm", tid);
+        FILE *comm = fopen(path, "r");
+        if (comm == NULL) continue;
+        if (fgets(name, sizeof(name), comm) == NULL) name[0] = '\0';
+        fclose(comm);
+        name[strcspn(name, "\n")] = '\0';
+        if (strcmp(name, "app.elf") == 0) {
+            const uint64_t runtime = adpf_runtime(tid);
+            if (runtime > main_runtime) { main_runtime = runtime; main_tid = tid; }
+            continue;
+        }
+        for (unsigned i = 0; i < sizeof(names) / sizeof(names[0]); ++i) {
+            if (count < max - 1 && strncmp(name, names[i], strlen(names[i])) == 0) { tids[count++] = tid; break; }
+        }
+    }
+    closedir(dir);
+    if (main_tid != 0) tids[count++] = main_tid;
+    return count;
+}
+
+static void *adpf_thread(void *arg) {
+    (void)arg;
+    void *android = dlopen("libandroid.so", RTLD_NOW);
+    adpf_manager_fn get_manager = android ? (adpf_manager_fn)dlsym(android, "APerformanceHint_getManager") : NULL;
+    adpf_create_fn create = android ? (adpf_create_fn)dlsym(android, "APerformanceHint_createSession") : NULL;
+    adpf_report_fn report = android ? (adpf_report_fn)dlsym(android, "APerformanceHint_reportActualWorkDuration") : NULL;
+    adpf_target_fn target = android ? (adpf_target_fn)dlsym(android, "APerformanceHint_updateTargetWorkDuration") : NULL;
+    adpf_threads_fn set_threads = android ? (adpf_threads_fn)dlsym(android, "APerformanceHint_setThreads") : NULL;
+    adpf_close_fn close_session = android ? (adpf_close_fn)dlsym(android, "APerformanceHint_closeSession") : NULL;
+    void *manager = get_manager ? get_manager() : NULL;
+    if (manager == NULL || create == NULL || report == NULL || target == NULL) {
+        fprintf(stderr, "[adpf] performance hints unavailable\n");
+        return NULL;
+    }
+    const int64_t window_ns = 50000000, target_ns = window_ns * 3 / 4;
+    void *session = NULL;
+    pid_t tids[8];
+    int count = 0;
+    uint64_t last[8] = {0};
+    sleep(20); // потоки игры и драйвера появляются после старта
+    for (unsigned tick = 0;; ++tick) {
+        if (tick % 100 == 0) { // раз в 5 с: потоки могли смениться
+            pid_t fresh[8];
+            const int found = adpf_threads(fresh, 8);
+            const int changed = found != count || memcmp(fresh, tids, sizeof(pid_t) * (size_t)found) != 0;
+            if (found > 0 && changed) {
+                if (session != NULL && set_threads != NULL && set_threads(session, fresh, (size_t)found) == 0) {
+                } else {
+                    if (session != NULL && close_session != NULL) close_session(session);
+                    int32_t ids[8];
+                    for (int i = 0; i < found; ++i) ids[i] = fresh[i];
+                    session = create(manager, ids, (size_t)found, target_ns);
+                }
+                memcpy(tids, fresh, sizeof(pid_t) * (size_t)found);
+                count = found;
+                for (int i = 0; i < count; ++i) last[i] = adpf_runtime(tids[i]);
+                fprintf(stderr, "[adpf] session %s over %d threads, target %lld ms per %lld ms\n", session ? "on" : "FAILED", count, (long long)(target_ns / 1000000), (long long)(window_ns / 1000000));
+            }
+        }
+        usleep((useconds_t)(window_ns / 1000));
+        if (session == NULL || count == 0) continue;
+        int64_t busiest = 0;
+        for (int i = 0; i < count; ++i) {
+            const uint64_t now = adpf_runtime(tids[i]);
+            const int64_t used = now >= last[i] ? (int64_t)(now - last[i]) : 0;
+            last[i] = now;
+            if (used > busiest) busiest = used;
+        }
+        if (busiest > 0) report(session, busiest);
     }
     return NULL;
 }
@@ -393,6 +529,10 @@ int SDL_main(int argc, char **argv) {
     // Касания — только сенсорное управление (геймпад игрока 1): SDL не делает из них мышь, иначе
     // игра видела мышь вторым устройством ввода (второй игрок) при касании мимо кнопок.
     setdefault("SDL_TOUCH_MOUSE_EVENTS", "0");
+    // Turnip: выбор режима прохода (тайлы GMEM или прямо в память) по реальному времени GPU обоих
+    // режимов, а не по оценке пропускной способности — та выбирает GMEM для проходов из множества
+    // мелких draw (меню), где прямой режим быстрее (Mesa issue 7072). TU_AUTOTUNE_ALGO=bandwidth — как было.
+    setdefault("TU_AUTOTUNE_ALGO", "profiled");
     setdefault("APS5_TEXTURE_CHECK_PER_FRAME", "1");
     setdefault("APS5_LOG_FPS", "1");
     // Кэш трансляции box64: в окне заставок половина главного потока — трансляция нового x86-кода.
@@ -420,9 +560,15 @@ int SDL_main(int argc, char **argv) {
         pthread_t thread;
         if (pthread_create(&thread, NULL, autopilot, autopilot_path) == 0) pthread_detach(thread);
     }
+    const char *adpf = getenv("APS5_ADPF");
+    if (adpf == NULL || strcmp(adpf, "0") != 0) {
+        pthread_t thread;
+        if (pthread_create(&thread, NULL, adpf_thread, NULL) == 0) pthread_detach(thread);
+    }
     const char *sample = getenv("APS5_SAMPLE");
-    if (sample != NULL && strcmp(sample, "1") == 0) {
+    if (sample != NULL && sample[0] != '\0' && strcmp(sample, "0") != 0) {
         sample_tid = gettid();
+        if (strcmp(sample, "1") != 0) sample_prefix = sample;
         pthread_t thread;
         if (pthread_create(&thread, NULL, sampler, NULL) == 0) pthread_detach(thread);
     }

@@ -91,8 +91,10 @@ seen=0; deadline=$(( $(date +%s) + LEN + 120 ))
 : > "$OUT/samples.txt"
 while [ "$(date +%s)" -lt "$deadline" ]; do
     sleep 2
-    # Сэмпл: время, процессорные тики игры (utime+stime), загрузка GPU %, температура большого ядра (м°C).
-    su -c 'P=$(pidof -s '$PKG'); [ -n "$P" ] && echo "$(date +%s.%N | cut -c1-14) $(cut -d" " -f14,15 /proc/$P/stat | tr " " "+" | bc) $(cat /sys/class/kgsl/kgsl-3d0/gpu_busy_percentage | tr -d " %") $(cat /sys/class/thermal/thermal_zone*/type | grep -n "^cpu-1-1-0$" | cut -d: -f1 | { read n; cat /sys/class/thermal/thermal_zone$((n-1))/temp; })"' >> "$OUT/samples.txt" 2>/dev/null
+    # Сэмпл: время, процессорные тики игры (utime+stime), GPU (из devfreq trans_stat: мс работы GPU на
+    # частотах выше минимальной и та же сумма, взвешенная частотой в МГц), температура ядра (м°C).
+    # Счётчики kgsl (gpu_busy_percentage, gpu_clock_stats) на этом телефоне не обновляются.
+    su -c 'P=$(pidof -s '$PKG'); [ -n "$P" ] && echo "$(date +%s.%N | cut -c1-14) $(cut -d" " -f14,15 /proc/$P/stat | tr " " "+" | bc) $(awk "/^[ *]+[0-9]+:/{gsub(/[*:]/,\"\"); f=\$1/1000000; t=\$NF; if(f>200){b+=t; w+=t*f}} END{printf \"%d %d\", b, w}" /sys/class/kgsl/kgsl-3d0/devfreq/trans_stat) $(cat /sys/class/thermal/thermal_zone*/type | grep -n "^cpu-1-1-0$" | cut -d: -f1 | { read n; cat /sys/class/thermal/thermal_zone$((n-1))/temp; })"' >> "$OUT/samples.txt" 2>/dev/null
     echo "M $seen" >> "$OUT/samples.txt"
     su -c "cat $GAME/box64.log" > "$TMP/autopilot-box64.log" 2>/dev/null
     marks=$(grep -a -c "^\[autopilot\].*mark" "$TMP/autopilot-box64.log")
@@ -124,12 +126,12 @@ fi
 awk 'BEGIN{seg="intro"} /^\[autopilot\].*mark/{if(n) printf "%-14s fps avg %5.1f min %3d max %3d (%d samples)\n", seg, s/n, mn, mx, n; seg=$NF; s=0; n=0; mn=999; mx=0; next}
      /^\[fps\]/{v=$2+0; s+=v; n++; if(v<mn)mn=v; if(v>mx)mx=v}
      END{if(n) printf "%-14s fps avg %5.1f min %3d max %3d (%d samples)\n", seg, s/n, mn, mx, n}' "$OUT/box64.log" > "$OUT/summary.txt"
-# Нагрузка по участкам: ядер занято (тики/100 Гц), GPU %, температура ядра в конце участка.
+# Нагрузка по участкам: ядер занято (тики/100 Гц), занятость GPU и её средняя частота, температура ядра в конце участка.
 names=$(grep -a "^\[autopilot\].*mark" "$OUT/box64.log" | awk '{print $NF}' | tr '\n' ' ')
 awk -v names="intro $names" 'BEGIN{n=split(names, nm, " ")}
   /^M /{seg=$2; next}
-  NF==4{ if(seg in t0){} else {t0[seg]=$1; c0[seg]=$2}; t1[seg]=$1; c1[seg]=$2; g[seg]+=$3; k[seg]++; temp[seg]=$4 }
-  END{for(i=0;i<n;i++) if(k[i]>1) printf "load %-12s cpu cores %.2f, gpu busy %3.0f%%, cpu temp %.1f C\n", nm[i+1], (c1[i]-c0[i])/100/(t1[i]-t0[i]), g[i]/k[i], temp[i]/1000}' "$OUT/samples.txt" >> "$OUT/summary.txt"
+  NF==5{ if(!(seg in t0)){t0[seg]=$1; c0[seg]=$2; b0[seg]=$3; w0[seg]=$4}; t1[seg]=$1; c1[seg]=$2; b1[seg]=$3; w1[seg]=$4; k[seg]++; temp[seg]=$5 }
+  END{for(i=0;i<n;i++) if(k[i]>1) { busy=b1[i]-b0[i]; printf "load %-12s cpu cores %.2f, gpu above min clock %3.0f%% of the time, avg %4.0f MHz, cpu temp %.1f C\n", nm[i+1], (c1[i]-c0[i])/100/(t1[i]-t0[i]), busy/10/(t1[i]-t0[i]), (busy>0 ? (w1[i]-w0[i])/busy : 0), temp[i]/1000 }}' "$OUT/samples.txt" >> "$OUT/summary.txt"
 grep -a -E "Ask to run at NULL|Unhandled signal|\[crash\]|SIGABRT" "$OUT/box64.log" | head -5 >> "$OUT/summary.txt"
 for k in "\[pipeline\]" "\[recipe-why\]" "\[reusable-why\]" "\[recipe\] draw"; do grep -a "$k" "$OUT/box64.log" | tail -2 >> "$OUT/summary.txt"; done
 echo "cpu max now: $(su -c 'cat /sys/devices/system/cpu/cpufreq/policy0/scaling_max_freq /sys/devices/system/cpu/cpufreq/policy6/scaling_max_freq' | tr '\n' ' ')" >> "$OUT/summary.txt"

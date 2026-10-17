@@ -64,7 +64,9 @@ Get the APK from [Releases](https://github.com/SFEZSergey/ReplantedAndroid/relea
     (no root needed). Attach it to a [bug report](https://github.com/SFEZSergey/ReplantedAndroid/issues/new/choose).
 
 Fine-tuning is done in `env.txt` inside the game folder (`files/game/env.txt`), one `NAME=value` per line
-(for example `APS5_FPS_LIMIT=45`, `APS5_NO_WORKER_AFFINITY=1`).
+(for example `APS5_FPS_LIMIT=45`, `APS5_NO_WORKER_AFFINITY=1`). Switches for the newer optimizations, if a
+problem shows up: `BOX64_APS5_NATIVE=0` (no native replacements of the game's libc functions), `APS5_ADPF=0`
+(no Android performance hints), `TU_AUTOTUNE_ALGO=bandwidth` (Turnip's default render-mode choice).
 
 ## Known issues
 
