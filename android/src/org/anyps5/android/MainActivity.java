@@ -998,8 +998,19 @@ public final class MainActivity extends Activity {
         File parent=destination.getParentFile();if(parent!=null)parent.mkdirs();
         try(java.io.RandomAccessFile in=new java.io.RandomAccessFile(source,"r");java.io.RandomAccessFile out=new java.io.RandomAccessFile(destination,"rw")){
             long length=in.length();
-            byte[] head=new byte[(int)Math.min(length,0x20)];in.readFully(head);
-            if (head.length < 0x20 || (u64(head, 0) & 0xffffffffL) != 0xEEF51454L) throw new Exception("eboot.bin не является PS5 SELF");
+            byte[] head=new byte[(int)Math.min(length,0x40)];in.readFully(head);
+            // Дамп уже расшифрован до ELF (так сохраняют часть дамперов): копия как есть, с тем же e_type, что у SELF.
+            if (head.length >= 0x40 && head[0]==0x7f && head[1]=='E' && head[2]=='L' && head[3]=='F') {
+                out.setLength(0);
+                java.nio.channels.FileChannel from=in.getChannel(), to=out.getChannel();
+                for(long done=0;done<length;){long n=to.transferFrom(from.position(done),done,length-done);if(n<=0)throw new Exception("Не удалось скопировать ELF");done+=n;}
+                if(u16(head,16)==0xfe18){byte[] type=new byte[2];putU16(type,0,3);out.seek(16);out.write(type);}
+                return;
+            }
+            String magic = head.length >= 4 ? String.format(Locale.US, "%02X %02X %02X %02X", head[0], head[1], head[2], head[3]) : "?";
+            if (head.length >= 4 && (head[0]&0xff)==0x4f && (head[1]&0xff)==0x15 && (head[2]&0xff)==0x3d && (head[3]&0xff)==0x1d)
+                throw new Exception(source.getName() + ": это SELF игры для PS4 (" + magic + "), AnyPS5 запускает только игры для PS5");
+            if (head.length < 0x20 || (u64(head, 0) & 0xffffffffL) != 0xEEF51454L) throw new Exception(source.getName() + " не является ни PS5 SELF, ни ELF (первые байты " + magic + "): похоже, дамп зашифрован или повреждён");
             int count=u16(head,0x18); long tableLong=0x20L+(long)count*0x20L;
             if (tableLong+64>length) throw new Exception("Повреждена таблица сегментов SELF");
             int table=(int)tableLong;
