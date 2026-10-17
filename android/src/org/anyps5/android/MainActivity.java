@@ -641,9 +641,15 @@ public final class MainActivity extends Activity {
     }
 
     private String selectedTree() { return getPreferences(MODE_PRIVATE).getString("game_tree", null); }
+    // Выбран другой дамп вместо импортированной игры: следующий запуск импортирует его заново.
+    private boolean importPending() { return selectedTree() != null && getPreferences(MODE_PRIVATE).getBoolean("import_pending", false); }
     private void showStatus() {
         String saved = selectedTree();
         File gameDir = new File(getFilesDir(), "game");
+        if (importPending()) {
+            status.setText(t("Будет импортирована папка: ", "Folder to import: ") + Uri.parse(saved).getLastPathSegment() + "\n" + runtimeStatus());
+            start.setText(t("Импорт и запуск", "Import and play")); start.setEnabled(true); return;
+        }
         if (new File(gameDir, "app.elf").isFile() && new File(gameDir, "libs").isDirectory()) {
             status.setText(t("Игра готова", "Game is ready") + "\n" + runtimeStatus());
             start.setText(t("Играть", "Play")); start.setEnabled(true); return;
@@ -673,7 +679,19 @@ public final class MainActivity extends Activity {
             Uri uri = data.getData();
             int flags = data.getFlags() & (Intent.FLAG_GRANT_READ_URI_PERMISSION | Intent.FLAG_GRANT_WRITE_URI_PERMISSION);
             getContentResolver().takePersistableUriPermission(uri, flags);
-            getPreferences(MODE_PRIVATE).edit().putString("game_tree", uri.toString()).apply(); showStatus();
+            final String tree = uri.toString();
+            // Уже импортирована игра: другой дамп заменит её при следующем запуске (папка дампа на телефоне не трогается).
+            if (new File(new File(getFilesDir(), "game"), "eboot.bin").isFile() && !tree.equals(selectedTree())) {
+                new AlertDialog.Builder(this).setTitle(t("Заменить игру?", "Replace the game?"))
+                    .setMessage(t("Импортированная игра будет удалена из приложения и заменена дампом из выбранной папки. Сам дамп на телефоне останется, его можно импортировать снова.",
+                        "The imported game will be removed from the app and replaced with the dump from the chosen folder. The dump itself stays on the phone and can be imported again."))
+                    .setPositiveButton(t("Заменить", "Replace"), new DialogInterface.OnClickListener() { @Override public void onClick(DialogInterface d, int w) {
+                        getPreferences(MODE_PRIVATE).edit().putString("game_tree", tree).putBoolean("import_pending", true).apply(); showStatus();
+                    } })
+                    .setNegativeButton(t("Отмена", "Cancel"), null).show();
+                return;
+            }
+            getPreferences(MODE_PRIVATE).edit().putString("game_tree", tree).apply(); showStatus();
         }
     }
 
@@ -783,7 +801,8 @@ public final class MainActivity extends Activity {
             // app.elf собран без модулей игры из Media или по старой раскладке: перелинковка заново из eboot.bin.
             new File(game, "app.elf").delete();
         }
-        if (new File(game, "app.elf").isFile() && new File(game, "libs").isDirectory()) {
+        final boolean replace = importPending();
+        if (!replace && new File(game, "app.elf").isFile() && new File(game, "libs").isDirectory()) {
             // Готовая раскладка (app.elf + libs): запуск без импорта, рантайм обновляется после обновления APK.
             start.setEnabled(false);
             status.setText(t("Проверяю рантайм…", "Checking the runtime…"));
@@ -803,7 +822,7 @@ public final class MainActivity extends Activity {
             }}).start();
             return;
         }
-        final boolean dumpAlreadyPresent = new File(game, "eboot.bin").isFile();
+        final boolean dumpAlreadyPresent = !replace && new File(game, "eboot.bin").isFile();
         if (!dumpAlreadyPresent && value == null) return;
         start.setEnabled(false);
         status.setText(dumpAlreadyPresent ? t("Дамп найден в папке игры; использую имеющиеся файлы…", "Dump found in the game folder; using the existing files…") : t("Копирую папку игры… Это может занять несколько минут.", "Copying the game folder… This can take a few minutes."));
@@ -821,6 +840,7 @@ public final class MainActivity extends Activity {
                     String rootId = DocumentsContract.getTreeDocumentId(tree);
                     String dumpId = findDumpDocument(tree, rootId);
                     copyTree(tree, dumpId == null ? rootId : dumpId, game);
+                    getPreferences(MODE_PRIVATE).edit().putBoolean("import_pending", false).apply();
                 }
                 File self = new File(game, "eboot.bin");
                 if (!self.isFile()) throw new Exception("В выбранной папке не найден eboot.bin. Выбери сам каталог дампа.");
