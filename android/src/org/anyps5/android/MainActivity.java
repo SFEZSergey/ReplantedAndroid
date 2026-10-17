@@ -721,7 +721,7 @@ public final class MainActivity extends Activity {
             String message;
             try (OutputStream raw = getContentResolver().openOutputStream(target); java.util.zip.ZipOutputStream zip = new java.util.zip.ZipOutputStream(raw)) {
                 File game = new File(getFilesDir(), "game");
-                for (String name : new String[] {"box64.log", "relinker.log", "launcher.env", "env.txt"}) {
+                for (String name : new String[] {"box64.log", "relinker.log", "relinker-modules.log", "launcher.env", "env.txt"}) {
                     File file = new File(game, name);
                     if (file.isFile()) { zip.putNextEntry(new ZipEntry(name)); Files.copy(file.toPath(), zip); zip.closeEntry(); }
                 }
@@ -779,8 +779,8 @@ public final class MainActivity extends Activity {
     private void importAndStart() {
         final String value = selectedTree();
         final File game = new File(getFilesDir(), "game");
-        if (new File(game, "app.elf").isFile() && new File(game, "libs").isDirectory() && new File(game, "eboot.bin").isFile() && hasUnlinkedGameModules(game)) {
-            // app.elf собран без модулей игры из Media (старый импорт): перелинковка заново из eboot.bin.
+        if (new File(game, "app.elf").isFile() && new File(game, "libs").isDirectory() && new File(game, "eboot.bin").isFile() && (hasUnlinkedGameModules(game) || staleRelinkLayout(game))) {
+            // app.elf собран без модулей игры из Media или по старой раскладке: перелинковка заново из eboot.bin.
             new File(game, "app.elf").delete();
         }
         if (new File(game, "app.elf").isFile() && new File(game, "libs").isDirectory()) {
@@ -832,6 +832,7 @@ public final class MainActivity extends Activity {
                     extractSelfModules(game);
                     statusOnUi(t("Запускаю AnyPS5 relinker…", "Running the AnyPS5 relinker…"));
                     runRelinker(game);
+                    Files.write(new File(game, ".relink-layout").toPath(), RELINK_LAYOUT.getBytes());
                 }
                 if (!executable.isFile()) throw new Exception("Relinker завершился, но app.elf не создан");
                 // Repair links even when an earlier import already created app.elf.
@@ -901,21 +902,109 @@ public final class MainActivity extends Activity {
     private static void extractSelfModules(File game) throws Exception {
         for(String dirName:new String[]{"sce_module","sce_modules","prx"}){File dir=new File(game,dirName);File[] modules=dir.listFiles();if(modules==null)continue;for(File module:modules){if(!module.isFile()||!isSelf(module))continue;File temp=new File(module.getParentFile(),module.getName()+".elftmp");extractSelf(module,temp);if(!module.delete()||!temp.renameTo(module))throw new Exception("Не удалось заменить SELF-модуль: "+module.getName());}}
     }
+    // relinker делает каждый модуль из <game>/prx зависимостью app.elf: он загружается при старте и его init
+    // получает пустые аргументы. Модули, которые игра грузит сама (sceKernelLoadStartModule с аргументами: SaveData,
+    // PSN, CommonDialog у PvZ), так падают в init. Поэтому два прохода: первый со всеми модулями — ради их
+    // .guest.prx для загрузки игрой (его app-modules.elf не нужен), второй — app.elf только с модулями, нужными с
+    // самого старта (DT_NEEDED eboot.elf и, по цепочке, самих модулей). Экспорты модулей получают суффикс #guest в
+    // обоих проходах, так что .guest.prx первого прохода сходятся с app.elf второго.
     private void runRelinker(File game) throws Exception {
+        File prx=new File(game,"prx"), later=new File(game,"prx-dynamic");
+        File[] parked=later.listFiles();
+        if(parked!=null)for(File module:parked){if(!prx.isDirectory()&&!prx.mkdirs())throw new Exception("Не удалось создать prx");if(!module.renameTo(new File(prx,module.getName())))throw new Exception("Не удалось вернуть модуль "+module.getName());}
+        File[] modules=prx.listFiles();
+        java.util.List<File> loadedLater=new java.util.ArrayList<>();
+        if(modules!=null&&modules.length>0){
+            java.util.Set<String> startup=startupModules(new File(game,"eboot.elf"),modules);
+            for(File module:modules)if(!startup.contains(module.getName()))loadedLater.add(module);
+        }
+        if(!loadedLater.isEmpty()){
+            File scratch=new File(game,"app-modules.elf");
+            relink(game,scratch,"relinker-modules.log");
+            scratch.delete();
+            if(!later.isDirectory()&&!later.mkdirs())throw new Exception("Не удалось создать prx-dynamic");
+            for(File module:loadedLater)if(!module.renameTo(new File(later,module.getName())))throw new Exception("Не удалось отложить модуль "+module.getName());
+        }
+        relink(game,new File(game,"app.elf"),"relinker.log");
+    }
+    private void relink(File game, File result, String log) throws Exception {
         File relinker=new File(getApplicationInfo().nativeLibraryDir,"librelinker.so");
         if(!relinker.isFile())throw new Exception("В APK не найден Android relinker");
-        File elf=new File(game,"eboot.elf"), result=new File(game,"app.elf");
-        ProcessBuilder pb=new ProcessBuilder(relinker.getAbsolutePath(),elf.getAbsolutePath(),result.getAbsolutePath());pb.directory(game);pb.redirectErrorStream(true);pb.redirectOutput(new File(game,"relinker.log"));pb.environment().put("LD_LIBRARY_PATH",getApplicationInfo().nativeLibraryDir);
+        File elf=new File(game,"eboot.elf");
+        ProcessBuilder pb=new ProcessBuilder(relinker.getAbsolutePath(),elf.getAbsolutePath(),result.getAbsolutePath());pb.directory(game);pb.redirectErrorStream(true);pb.redirectOutput(new File(game,log));pb.environment().put("LD_LIBRARY_PATH",getApplicationInfo().nativeLibraryDir);
         int code;try{code=pb.start().waitFor();}catch(Exception e){throw new Exception("Не удалось запустить relinker: "+e.getMessage());}
-        if(code!=0||!result.isFile()){String detail="";try{java.util.List<String> lines=Files.readAllLines(new File(game,"relinker.log").toPath());int from=Math.max(0,lines.size()-12);detail=android.text.TextUtils.join("\n",lines.subList(from,lines.size()));}catch(Exception ignored){}throw new Exception("Relinker завершился с кодом "+code+(detail.isEmpty()?"":"\n"+detail));}
-        if(!result.setExecutable(true,false))throw new Exception("Не удалось разрешить запуск созданного app.elf");
+        if(code!=0||!result.isFile()){String detail="";try{java.util.List<String> lines=Files.readAllLines(new File(game,log).toPath());int from=Math.max(0,lines.size()-12);detail=android.text.TextUtils.join("\n",lines.subList(from,lines.size()));}catch(Exception ignored){}throw new Exception("Relinker завершился с кодом "+code+(detail.isEmpty()?"":"\n"+detail));}
+        if(!result.setExecutable(true,false))throw new Exception("Не удалось разрешить запуск созданного "+result.getName());
+    }
+    // Имена модулей из prx, нужных с самого старта: DT_NEEDED eboot.elf и, по цепочке, самих модулей. Имя сверяется
+    // целиком или без расширения (.prx/.sprx/.debug_prx), как relinker сопоставляет зависимости.
+    private static java.util.Set<String> startupModules(File executable, File[] modules) throws Exception {
+        java.util.Set<String> startup=new java.util.HashSet<>();
+        java.util.List<String> roots=elfNeeded(executable);
+        // Зависимости eboot.elf не прочитаны: все модули — при старте, как в одном проходе.
+        if(roots.isEmpty()){for(File module:modules)startup.add(module.getName());return startup;}
+        java.util.ArrayDeque<String> pending=new java.util.ArrayDeque<>(roots);
+        java.util.Set<String> seen=new java.util.HashSet<>();
+        while(!pending.isEmpty()){
+            String name=pending.poll();if(!seen.add(name))continue;
+            for(File module:modules){
+                if(startup.contains(module.getName()))continue;
+                if(!module.getName().equals(name)&&!moduleStem(module.getName()).equals(moduleStem(name)))continue;
+                startup.add(module.getName());
+                pending.addAll(elfNeeded(module));
+            }
+        }
+        return startup;
+    }
+    private static String moduleStem(String name) {
+        for(String suffix:new String[]{".debug_prx",".sprx",".prx"})if(name.length()>suffix.length()&&name.endsWith(suffix))return name.substring(0,name.length()-suffix.length());
+        return name;
+    }
+    // DT_NEEDED ELF-файла PS5: строки — из DT_SCE_STRTAB (смещение от PT_SCE_DYNLIBDATA) или из DT_STRTAB (адрес).
+    private static java.util.List<String> elfNeeded(File file) throws Exception {
+        java.util.List<String> names=new java.util.ArrayList<>();
+        try(java.io.RandomAccessFile in=new java.io.RandomAccessFile(file,"r")){
+            byte[] header=new byte[64];if(in.length()<64)return names;in.readFully(header);
+            if(header[0]!=0x7f||header[1]!='E'||header[2]!='L'||header[3]!='F')return names;
+            long phoff=u64(header,32);int phentsize=u16(header,54),phnum=u16(header,56);
+            if(phentsize<56||phoff<0||phoff+(long)phentsize*phnum>in.length())return names;
+            byte[] table=new byte[phentsize*phnum];in.seek(phoff);in.readFully(table);
+            long dynOffset=-1,dynSize=0,libOffset=-1;
+            java.util.List<long[]> loads=new java.util.ArrayList<>();
+            for(int i=0;i<phnum;i++){
+                int h=i*phentsize;long type=ByteBuffer.wrap(table,h,4).order(ByteOrder.LITTLE_ENDIAN).getInt()&0xffffffffL;
+                long offset=u64(table,h+8),vaddr=u64(table,h+16),filesz=u64(table,h+32);
+                if(type==2){dynOffset=offset;dynSize=filesz;}
+                else if(type==0x61000000L)libOffset=offset;
+                else if(type==1)loads.add(new long[]{offset,vaddr,filesz});
+            }
+            if(dynOffset<0||dynSize<=0||dynOffset+dynSize>in.length()||dynSize>(16<<20))return names;
+            byte[] dyn=new byte[(int)dynSize];in.seek(dynOffset);in.readFully(dyn);
+            java.util.List<Long> needed=new java.util.ArrayList<>();long sceStrtab=-1,strtab=-1;
+            for(int p=0;p+16<=dyn.length;p+=16){
+                long tag=u64(dyn,p),value=u64(dyn,p+8);
+                if(tag==0)break;
+                if(tag==1)needed.add(value);else if(tag==0x61000035L)sceStrtab=value;else if(tag==5)strtab=value;
+            }
+            long base=-1;
+            if(sceStrtab>=0&&libOffset>=0)base=libOffset+sceStrtab;
+            else if(strtab>=0)for(long[] load:loads)if(strtab>=load[1]&&strtab<load[1]+load[2])base=load[0]+strtab-load[1];
+            if(base<0)return names;
+            for(long offset:needed){
+                long at=base+offset;if(at<0||at>=in.length())continue;
+                in.seek(at);StringBuilder name=new StringBuilder();
+                for(int c;(c=in.read())>0&&name.length()<256;)name.append((char)c);
+                if(name.length()>0)names.add(name.toString());
+            }
+        }
+        return names;
     }
     private void linkGameResources(File game) throws Exception {
         File app0=new File(game,"app0");if(!app0.exists()&&!app0.mkdirs())throw new Exception("Не удалось создать app0");
         File[] entries=game.listFiles();if(entries==null)return;
         for(File entry:entries){
             String name=entry.getName();
-            if(name.equals("app0")||name.equals("app.elf")||name.equals("eboot.bin")||name.equals("eboot.elf")||name.equals("relinker.log")||name.equals("box64.log")||name.equals("libs")||name.equals("x64lib")||name.equals("sce_module")||name.equals("sce_modules")||name.equals("prx"))continue;
+            if(name.equals("app0")||name.equals("app.elf")||name.equals("eboot.bin")||name.equals("eboot.elf")||name.equals("relinker.log")||name.equals("box64.log")||name.equals("libs")||name.equals("x64lib")||name.equals("sce_module")||name.equals("sce_modules")||name.equals("prx")||name.equals("prx-dynamic")||name.equals("relinker-modules.log"))continue;
             File link=new File(app0,name);String target="../"+name;
             try{if(Files.exists(link.toPath(),java.nio.file.LinkOption.NOFOLLOW_LINKS))clearDirectory(link);Os.symlink(target,link.getAbsolutePath());}
             catch(Exception e){throw new Exception("Не удалось подключить ресурс "+name+" в app0: "+e.getMessage());}
@@ -927,6 +1016,13 @@ public final class MainActivity extends Activity {
     private static boolean isGameModule(File file) {
         String name = file.getName();
         return name.endsWith(".prx") && !name.endsWith(".guest.prx") && !Files.isSymbolicLink(file.toPath()) && file.isFile();
+    }
+    // Версия раскладки перелинковки: app.elf, собранный раньше (все модули игры — зависимости app.elf), пересобирается.
+    private static final String RELINK_LAYOUT = "2";
+    private static boolean staleRelinkLayout(File game) {
+        File[] modules = new File(game, "prx").listFiles();
+        if (modules == null || modules.length == 0) return false;
+        try { return !RELINK_LAYOUT.equals(new String(Files.readAllBytes(new File(game, ".relink-layout").toPath())).trim()); } catch (Exception e) { return true; }
     }
     private static boolean hasUnlinkedGameModules(File game) {
         for (String folder : new String[] {"Modules", "Plugins"}) {
