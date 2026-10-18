@@ -243,15 +243,75 @@ static void *open_vulkan(const char *native_dir, const char *tmp_dir) {
 }
 
 
+// Сводка для логов ([diag] в box64.log, попадает в zip «Логи»): раз в 9 с — самые загруженные потоки в
+// процентах ядра, память процесса и загрузка GPU (если система даёт её прочитать). Без root и Termux.
+#define DIAG_THREADS 512
+struct diag_sample { int tid; unsigned long ticks; char name[20]; };
+static struct diag_sample diag_previous[DIAG_THREADS], diag_current[DIAG_THREADS];
+static int diag_previous_count, diag_current_count;
+
+static void diag_note(int tid, const char *name, unsigned long ticks) {
+    if (diag_current_count >= DIAG_THREADS) return;
+    struct diag_sample *sample = &diag_current[diag_current_count++];
+    sample->tid = tid;
+    sample->ticks = ticks;
+    snprintf(sample->name, sizeof(sample->name), "%s", name);
+}
+
+static void diag_report(double seconds) {
+    struct { double load; int index; } top[6] = {{0, -1}, {0, -1}, {0, -1}, {0, -1}, {0, -1}, {0, -1}};
+    const double hz = (double)sysconf(_SC_CLK_TCK);
+    for (int i = 0; i < diag_current_count; ++i) {
+        unsigned long before = diag_current[i].ticks;
+        for (int j = 0; j < diag_previous_count; ++j) {
+            if (diag_previous[j].tid == diag_current[i].tid) { before = diag_previous[j].ticks; break; }
+        }
+        const double load = (double)(diag_current[i].ticks - before) * 100.0 / hz / seconds;
+        for (int slot = 0; slot < 6; ++slot) {
+            if (load <= top[slot].load) continue;
+            for (int move = 5; move > slot; --move) top[move] = top[move - 1];
+            top[slot].load = load;
+            top[slot].index = i;
+            break;
+        }
+    }
+    char line[512];
+    int used = snprintf(line, sizeof(line), "[diag] cpu");
+    for (int slot = 0; slot < 6 && top[slot].index >= 0 && top[slot].load >= 1.0 && used < (int)sizeof(line); ++slot)
+        used += snprintf(line + used, sizeof(line) - (size_t)used, " %s %.0f%%", diag_current[top[slot].index].name, top[slot].load);
+    FILE *status = fopen("/proc/self/status", "r");
+    if (status != NULL) {
+        char row[128];
+        while (fgets(row, sizeof(row), status) != NULL) {
+            unsigned long kb;
+            if (sscanf(row, "VmRSS: %lu", &kb) == 1 && used < (int)sizeof(line)) { used += snprintf(line + used, sizeof(line) - (size_t)used, "; rss %lu MB", kb / 1024); break; }
+        }
+        fclose(status);
+    }
+    FILE *gpu = fopen("/sys/class/kgsl/kgsl-3d0/gpu_busy_percentage", "r");
+    if (gpu != NULL) {
+        int busy;
+        if (fscanf(gpu, "%d", &busy) == 1 && used < (int)sizeof(line)) used += snprintf(line + used, sizeof(line) - (size_t)used, "; gpu busy %d%%", busy);
+        fclose(gpu);
+    }
+    fprintf(stderr, "%s\n", line);
+    memcpy(diag_previous, diag_current, sizeof(diag_current[0]) * (size_t)diag_current_count);
+    diag_previous_count = diag_current_count;
+}
+
 // Сторожевой поток (APS5_WATCHDOG=0 отключает): каждые 3 с пишет в watch.log состояние потоков
-// (имя, состояние, utime, stime, wchan) — видно, где процесс встал, даже если его потом заморозят.
+// (имя, состояние, utime, stime, wchan) — видно, где процесс встал, даже если его потом заморозят; из тех же
+// срезов — сводка [diag] (APS5_DIAG=0 отключает).
 static void *watchdog(void *arg) {
     (void)arg;
     FILE *out = fopen("watch.log", "w");
     if (out == NULL) return NULL;
+    const char *diag_env = getenv("APS5_DIAG");
+    const bool diag = diag_env == NULL || strcmp(diag_env, "0") != 0;
     for (int tick = 0;; ++tick) {
         sleep(3);
         fprintf(out, "== %d s\n", tick * 3 + 3);
+        diag_current_count = 0;
         DIR *dir = opendir("/proc/self/task");
         struct dirent *entry;
         while (dir != NULL && (entry = readdir(dir)) != NULL) {
@@ -269,9 +329,16 @@ static void *watchdog(void *arg) {
             char state = 0; unsigned long utime = 0, stime = 0;
             sscanf(close + 2, "%c %*d %*d %*d %*d %*d %*u %*u %*u %*u %*u %lu %lu", &state, &utime, &stime);
             fprintf(out, "%s %s %c %lu %lu %s\n", entry->d_name, name + 1, state, utime, stime, wchan);
+            diag_note(atoi(entry->d_name), name + 1, utime + stime);
         }
         if (dir != NULL) closedir(dir);
         fflush(out);
+        if (diag && tick == 0) {
+            memcpy(diag_previous, diag_current, sizeof(diag_current[0]) * (size_t)diag_current_count);
+            diag_previous_count = diag_current_count;
+        } else if (diag && tick % 3 == 0) {
+            diag_report(9.0);
+        }
     }
     return NULL;
 }

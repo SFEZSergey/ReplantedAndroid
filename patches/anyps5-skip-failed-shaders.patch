@@ -99,13 +99,15 @@ index c04120360..b971e270f 100644
              });
              finishDrawPacket(drawn);
 diff --git a/core/libs/prx/libSceAgcDriver/Execution/src/Driver/Shaders/ShaderDiagnostics.cpp b/core/libs/prx/libSceAgcDriver/Execution/src/Driver/Shaders/ShaderDiagnostics.cpp
-index 5fac82751..b09d0a51b 100644
+index 5fac82751..bf6fbda25 100644
 --- a/core/libs/prx/libSceAgcDriver/Execution/src/Driver/Shaders/ShaderDiagnostics.cpp
 +++ b/core/libs/prx/libSceAgcDriver/Execution/src/Driver/Shaders/ShaderDiagnostics.cpp
-@@ -1,11 +1,52 @@
+@@ -1,11 +1,75 @@
  #include "prx/libSceAgcDriver/Execution/include/Driver/Driver.hpp"
  #include "ControlFlow/RequestSerializer.hpp"
 +#include <atomic>
++#include <chrono>
++#include <cstdio>
  #include <cstdlib>
 +#include <mutex>
 +#include <unordered_map>
@@ -123,6 +125,22 @@ index 5fac82751..b09d0a51b 100644
 +std::mutex refusedMutex;
 +std::unordered_map<std::uint64_t, std::uint32_t> refused;
 +std::atomic<bool> anyRefused{false};
++// Every ~10 s with any activity, one line in the log: how much refused work was left out by the memo, how much
++// was refused anew and how many repeats were attempted again (the memo works when "left out" dominates).
++std::uint64_t leftOut = 0, refusedAnew = 0, retried = 0;
++std::chrono::steady_clock::time_point refusalReportAt{};
++
++void reportRefusals() {
++    const auto now = std::chrono::steady_clock::now();
++    if (refusalReportAt == std::chrono::steady_clock::time_point{}) refusalReportAt = now;
++    if (now - refusalReportAt < std::chrono::seconds(10)) return;
++    if (leftOut + refusedAnew + retried != 0) {
++        std::fprintf(stderr, "[gpu] refused work in %.0f s: %llu left out by the memo, %llu refused anew, %llu tried again; %zu keys\n",
++            std::chrono::duration<double>(now - refusalReportAt).count(), static_cast<unsigned long long>(leftOut), static_cast<unsigned long long>(refusedAnew), static_cast<unsigned long long>(retried), refused.size());
++    }
++    leftOut = refusedAnew = retried = 0;
++    refusalReportAt = now;
++}
 +}
 +
 +bool Driver::skipRefused(std::uint64_t key) {
@@ -130,7 +148,10 @@ index 5fac82751..b09d0a51b 100644
 +    std::lock_guard lock(refusedMutex);
 +    const auto found = refused.find(key);
 +    if (found == refused.end()) return false;
-+    return ++found->second % 256u != 0u;
++    const bool skip = ++found->second % 256u != 0u;
++    ++(skip ? leftOut : retried);
++    reportRefusals();
++    return skip;
 +}
 +
 +void Driver::noteRefused(std::uint64_t key) {
@@ -138,6 +159,8 @@ index 5fac82751..b09d0a51b 100644
 +    std::lock_guard lock(refusedMutex);
 +    if (refused.size() >= 4096) refused.clear();
 +    refused.try_emplace(key, 0u);
++    ++refusedAnew;
++    reportRefusals();
 +    anyRefused.store(true, std::memory_order_relaxed);
 +}
 +
