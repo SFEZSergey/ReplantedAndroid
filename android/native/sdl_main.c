@@ -18,6 +18,7 @@
 #include <sys/stat.h>
 #include <jni.h>
 #include <stdatomic.h>
+#include <stdbool.h>
 #include <stdint.h>
 
 // Виртуальный геймпад (сенсорный слой GameActivity/TouchControlsView). libSceVideoOut находит этот
@@ -37,6 +38,43 @@ JNIEXPORT void JNICALL Java_org_anyps5_android_GameActivity_nativeVirtualPad(JNI
     atomic_store(&aps5_virtual_pad.buttons, (uint32_t)buttons);
     atomic_store(&aps5_virtual_pad.sticks, sticks);
     atomic_fetch_add(&aps5_virtual_pad.sequence, 1);
+}
+
+// Сенсорная мышь (TouchControlsView, касания мимо кнопок в режиме тачпада): события уходят в libSceMouse
+// той же функцией, что и события настоящей мыши из SDL (MouseInput в libSceVideoOut). Структура повторяет
+// MouseInputEvent из core/libs/prx/libSceMouse/include/MouseState.hpp (передаётся по ссылке).
+struct aps5_mouse_event {
+    int32_t x, y, wheel, tilt;
+    uint32_t button;
+    bool pressed, reset_buttons, connection_change, connected;
+};
+typedef void (*mouse_publish_fn)(const struct aps5_mouse_event *);
+static char mouse_library[PATH_MAX];
+
+// libSceMouse.so грузит загрузчик нативной группы AnyPS5, когда игра стартует: до этого события некуда слать.
+static mouse_publish_fn mouse_publish(void) {
+    static mouse_publish_fn publish;
+    if (publish == NULL && mouse_library[0] != '\0') {
+        void *library = dlopen(mouse_library, RTLD_NOW | RTLD_NOLOAD);
+        if (library != NULL) publish = (mouse_publish_fn)dlsym(library, "MousePublishInput_nid_postfix");
+    }
+    return publish;
+}
+
+JNIEXPORT void JNICALL Java_org_anyps5_android_GameActivity_nativeTouchMouse(JNIEnv *env, jclass cls, jint dx, jint dy, jint button, jboolean pressed) {
+    (void)env;
+    (void)cls;
+    const mouse_publish_fn publish = mouse_publish();
+    if (publish == NULL) return;
+    // На Android мышь сначала не подключена (игре хватает геймпада): первое касание её подключает.
+    static bool connected;
+    if (!connected) {
+        const struct aps5_mouse_event connect = {.connection_change = true, .connected = true};
+        publish(&connect);
+        connected = true;
+    }
+    const struct aps5_mouse_event event = {.x = dx, .y = dy, .button = (uint32_t)button, .pressed = pressed, .connected = true};
+    publish(&event);
 }
 
 // Ввод текста для игры (sceImeDialog, x86 под box64): libSceImeDialog находит этот объект по адресу
@@ -463,6 +501,7 @@ int SDL_main(int argc, char **argv) {
     char game_elf[PATH_MAX];
     if (realpath(argv[1], game_elf) == NULL) { LOG(ANDROID_LOG_ERROR, "no game ELF %s", argv[1]); return 3; }
     const char *native_dir = argv[2];
+    snprintf(mouse_library, sizeof(mouse_library), "%s/libSceMouse.so", native_dir);
     char game_dir[PATH_MAX];
     snprintf(game_dir, sizeof(game_dir), "%s", game_elf);
     char *slash = strrchr(game_dir, '/');

@@ -85,6 +85,7 @@
 | `patches/mesa-26.3-android.patch` | Turnip: импорт host-памяти через KGSL, линейные буферы swapchain с gralloc |
 | `patches/sdl2-android-udev-once.patch` | SDL2 (подмодуль AnyPS5) |
 | `patches/box64-android-hwcap.patch` | box64: расширения процессора (атомарные LSE, FLAGM, FRINT, CRC32…) читаются через `getauxval` bionic; без него динарек в приложении видел только ASIMD |
+| `patches/anyps5-mouse-absolute.patch` | AnyPS5: функции мыши PS5 для абсолютных координат (их вызывает при старте Mewgenics, PPSA37318) |
 | `cmake/` | toolchain-файлы CMake (bionic arm64 и x86-64 glibc), cross-файл Meson для Mesa, `box64-emu.sh` |
 | `compat/` | заголовки совместимости (ndk-shim, box64-android-compat) |
 
@@ -98,6 +99,7 @@
 git clone --recursive https://github.com/SFEZSergey/ReplantedAndroid
 cd ReplantedAndroid
 git -C external/AnyPS5/3rdparty/SDL2 apply ../../../../patches/sdl2-android-udev-once.patch
+git -C external/AnyPS5 apply ../../patches/anyps5-mouse-absolute.patch
 ```
 
 1. **AnyPS5, нативная группа (bionic arm64)** → `external/AnyPS5/build-bionic`:

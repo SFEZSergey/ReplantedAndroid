@@ -10,6 +10,8 @@ import org.libsdl.app.SDLActivity;
 public final class GameActivity extends SDLActivity {
     // Состояние виртуального геймпада (TouchControlsView) для libSceVideoOut; реализовано в libmain.
     static native void nativeVirtualPad(int buttons, int leftX, int leftY, int rightX, int rightY);
+    // Сенсорная мышь: сдвиг курсора и кнопка (1 — левая, 2 — правая; 0 — только сдвиг).
+    static native void nativeTouchMouse(int dx, int dy, int button, boolean pressed);
     // Ввод текста для игры (sceImeDialog): запрос (начальный текст или null), предел длины, ещё нужен ли
     // показанный диалог, ответ (null — отмена). Реализовано в libmain.
     static native String nativeTextInputRequest();

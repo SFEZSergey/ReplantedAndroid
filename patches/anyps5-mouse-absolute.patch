@@ -1,0 +1,118 @@
+diff --git a/core/libs/prx/libSceMouse/Export.cpp b/core/libs/prx/libSceMouse/Export.cpp
+index 9d820d245..b96c06edb 100644
+--- a/core/libs/prx/libSceMouse/Export.cpp
++++ b/core/libs/prx/libSceMouse/Export.cpp
+@@ -18,6 +18,31 @@ int APS5_VABI sceMouseRead(std::int32_t handle, MouseData* data, std::int32_t nu
+     return Mouse::Read(handle, data, num);
+ }
+ 
++// Absolute-position mode (PS5). The handle comes first as in the rest of the library; the other parameters are
++// not verified on a console (docs/dev/TechnicalDebt.md). The settings change nothing: the host input layer reports
++// relative motion only, so no absolute sample is ever produced.
++int APS5_VABI sceMouseSetAbsoluteVirtualScreenSize(std::int32_t handle, std::int32_t width, std::int32_t height) {
++    (void)width;
++    (void)height;
++    return Mouse::CheckHandle(handle);
++}
++
++int APS5_VABI sceMouseResetAbsolutePosition(std::int32_t handle) {
++    return Mouse::CheckHandle(handle);
++}
++
++int APS5_VABI sceMouseSetAbsoluteHighPrecisionMode(std::int32_t handle, bool enabled) {
++    (void)enabled;
++    return Mouse::CheckHandle(handle);
++}
++
++// Nothing is written to the caller's buffer: no new position, as with a mouse that has not moved.
++int APS5_VABI sceMouseReadAbsolutePosition(std::int32_t handle, void* data, std::int32_t num) {
++    (void)data;
++    (void)num;
++    return Mouse::CheckHandle(handle);
++}
++
+ void MousePublishInput_nid_postfix(const MouseInputEvent& event) {
+     Mouse::Publish(event);
+ }
+diff --git a/core/libs/prx/libSceMouse/include/MouseState.hpp b/core/libs/prx/libSceMouse/include/MouseState.hpp
+index bf7d57a09..a063323c4 100644
+--- a/core/libs/prx/libSceMouse/include/MouseState.hpp
++++ b/core/libs/prx/libSceMouse/include/MouseState.hpp
+@@ -20,6 +20,7 @@ int Initialize();
+ int Open(int userId, std::int32_t type, std::int32_t index, const MouseOpenParam* param);
+ int Close(std::int32_t handle);
+ int Read(std::int32_t handle, MouseData* data, std::int32_t num);
++int CheckHandle(std::int32_t handle);
+ void Publish(const MouseInputEvent& event);
+ }
+ 
+diff --git a/core/libs/prx/libSceMouse/src/mouse_impl.cpp b/core/libs/prx/libSceMouse/src/mouse_impl.cpp
+index 0a2d6798c..96652d550 100644
+--- a/core/libs/prx/libSceMouse/src/mouse_impl.cpp
++++ b/core/libs/prx/libSceMouse/src/mouse_impl.cpp
+@@ -83,6 +83,13 @@ int Read(std::int32_t handle, MouseData* data, std::int32_t num) {
+     return available;
+ }
+ 
++int CheckHandle(std::int32_t handle) {
++    std::lock_guard lock(mouseMutex);
++    if (!initialized) return MOUSE_ERROR_NOT_INITIALIZED;
++    if (handle != MOUSE_HANDLE || !opened) return MOUSE_ERROR_INVALID_HANDLE;
++    return MOUSE_OK;
++}
++
+ void Publish(const MouseInputEvent& event) {
+     std::lock_guard lock(mouseMutex);
+     if (event.connectionChange) {
+diff --git a/core/libs/prx/libSceMouse/tests/Mouse.cpp b/core/libs/prx/libSceMouse/tests/Mouse.cpp
+index e01f3f9b4..cc38cb13f 100644
+--- a/core/libs/prx/libSceMouse/tests/Mouse.cpp
++++ b/core/libs/prx/libSceMouse/tests/Mouse.cpp
+@@ -11,6 +11,10 @@ int APS5_VABI sceMouseInit();
+ int APS5_VABI sceMouseOpen(int, std::int32_t, std::int32_t, const void*);
+ int APS5_VABI sceMouseClose(std::int32_t);
+ int APS5_VABI sceMouseRead(std::int32_t, MouseData*, std::int32_t);
++int APS5_VABI sceMouseSetAbsoluteVirtualScreenSize(std::int32_t, std::int32_t, std::int32_t);
++int APS5_VABI sceMouseResetAbsolutePosition(std::int32_t);
++int APS5_VABI sceMouseSetAbsoluteHighPrecisionMode(std::int32_t, bool);
++int APS5_VABI sceMouseReadAbsolutePosition(std::int32_t, void*, std::int32_t);
+ }
+ 
+ static void Require(bool value) { if (!value) std::abort(); }
+@@ -18,14 +22,24 @@ static void Require(bool value) { if (!value) std::abort(); }
+ int main() {
+     MouseData data[64]{};
+     Require(sceMouseOpen(1, 0, 0, nullptr) == MOUSE_ERROR_NOT_INITIALIZED);
++    Require(sceMouseResetAbsolutePosition(MOUSE_HANDLE) == MOUSE_ERROR_NOT_INITIALIZED);
+     Require(sceMouseInit() == MOUSE_OK);
+     Require(sceMouseInit() == MOUSE_OK);
+     Require(sceMouseOpen(1, 0, 1, nullptr) == MOUSE_ERROR_INVALID_ARG);
+     MouseOpenParam unsupported{};
+     unsupported.behaviorFlag = 2;
+     Require(sceMouseOpen(1, 0, 0, &unsupported) == MOUSE_ERROR_INVALID_ARG);
++    Require(sceMouseSetAbsoluteVirtualScreenSize(MOUSE_HANDLE, 1920, 1080) == MOUSE_ERROR_INVALID_HANDLE);
+     Require(sceMouseOpen(1, 0, 0, nullptr) == MOUSE_HANDLE);
+     Require(sceMouseOpen(1, 0, 0, nullptr) == MOUSE_ERROR_ALREADY_OPENED);
++    Require(sceMouseSetAbsoluteVirtualScreenSize(MOUSE_HANDLE, 1920, 1080) == MOUSE_OK);
++    Require(sceMouseSetAbsoluteHighPrecisionMode(MOUSE_HANDLE, true) == MOUSE_OK);
++    Require(sceMouseResetAbsolutePosition(MOUSE_HANDLE) == MOUSE_OK);
++    Require(sceMouseResetAbsolutePosition(42) == MOUSE_ERROR_INVALID_HANDLE);
++    std::uint8_t absolute[64];
++    for (auto& byte : absolute) byte = 0xa5;
++    Require(sceMouseReadAbsolutePosition(MOUSE_HANDLE, absolute, 1) == 0);
++    for (auto byte : absolute) Require(byte == 0xa5);
+     Require(sceMouseRead(42, data, 1) == MOUSE_ERROR_INVALID_HANDLE);
+     Require(sceMouseRead(MOUSE_HANDLE, nullptr, 1) == MOUSE_ERROR_INVALID_ARG);
+     Require(sceMouseRead(MOUSE_HANDLE, data, 65) == MOUSE_ERROR_INVALID_ARG);
+diff --git a/docs/dev/TechnicalDebt.md b/docs/dev/TechnicalDebt.md
+index 542edd980..b1cef4576 100644
+--- a/docs/dev/TechnicalDebt.md
++++ b/docs/dev/TechnicalDebt.md
+@@ -39,6 +39,7 @@ Throughout the project, every function at every stage either **does exactly what
+ - [libSceHttp2](../../core/libs/prx/libSceHttp2/Export.cpp) - no request reaches the network, so `sceHttp2SetMinSslVersion` has no TLS connection to restrict and returns success for any `id`, like `sceHttp2SslEnableOption` (prosper returns the invalid-id error for an unknown one)
+ - [libSceNpTrophy2](../../core/libs/prx/libSceNpTrophy2/src/GameInfo.cpp): `sceNpTrophy2RegisterUnlockCallback` accepts a callback that is never called, as no trophy is ever unlocked, and `sceNpTrophy2UnregisterUnlockCallback` only returns success.
+ - [sceAvPlayerSetTrickSpeed](../../core/libs/prx/libSceAvPlayer/src/Source.cpp) (libSceAvPlayer) with a negative speed runs the clock backwards but delivers no frames; when a forward speed is set again, playback resumes from the rewound time.
++- [sceMouseSetAbsoluteVirtualScreenSize, sceMouseResetAbsolutePosition, sceMouseSetAbsoluteHighPrecisionMode, sceMouseReadAbsolutePosition](../../core/libs/prx/libSceMouse/Export.cpp) (libSceMouse) - the PS5 absolute-position mode; shadPS4 has no counterpart. PPSA37318 calls `sceMouseSetAbsoluteVirtualScreenSize` during start-up. The handle is taken as the first parameter like the rest of the library and checked like `sceMouseRead` (not initialized, wrong or closed handle); the other parameters (`width, height`, `enabled`, `data, num`) are guesses and are ignored. The host input layer reports relative motion only, so no absolute sample exists: `sceMouseReadAbsolutePosition` returns 0 and writes nothing, as a mouse that has not moved. The real signatures, the sample layout and the errors are unverified on a console
+ - [sceRudpActivate](../../core/libs/prx/libSceRudp/Export.cpp) (libSceRudp) - there is no reliable-UDP stack on the host to activate, so it returns success without doing anything, as [shadPS4](https://github.com/shadps4-emu/shadPS4/blob/main/src/core/libraries/rudp/rudp.cpp) does for its own `sceRudpActivate`. PPSA01325 calls it with no arguments during start-up; what the console activates, and whether it reports an error before `sceRudpInit`, is unverified
+ - [ulobjmgr](../../core/libs/prx/ulobjmgr/Export.cpp) registers no object: `_sceUlobjmgrRegisterObject` always hands out id 0 and `_sceUlobjmgrUnregisterObject` releases nothing, as shadPS4 does
+ - [libSceHttp](../../core/libs/prx/libSceHttp/Export.cpp) - no request reaches the network, so `sceHttpSetResponseHeaderMaxSize` has no response header to limit, `sceHttpSetRecvBlockSize` (`(int id, u32 blockSize)` as in [shadPS4](https://github.com/shadps4-emu/shadPS4/blob/main/src/core/libraries/network/http.h)) no response body to read in blocks and `sceHttpRedirectCacheFlush` no redirect to forget; `sceHttpsUnloadCert` returns success like `sceHttpsLoadCert`, which keeps no certificate; `sceHttpSetRedirectCallback` and `sceHttpSetCookieRecvCallback` accept callbacks that are never called, `sceHttpsSetSslVersion` has no TLS connection to configure and `sceHttpsGetSslError` reports error 0 with detail 0; `sceHttpSetAuthInfoCallback` accepts a callback that is never called, as no server asks for authentication

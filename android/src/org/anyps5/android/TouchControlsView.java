@@ -80,6 +80,14 @@ public final class TouchControlsView extends View {
     private int buttons = 0;
     private int sentButtons = -1, sentSticks = -1;
     private boolean visible;
+    // Сенсорная мышь (режим тачпада, настройка «mouse»): касание мимо кнопок двигает курсор, тап — левый клик,
+    // тап двумя пальцами — правый, удержание и ведение — перетаскивание с зажатой левой кнопкой.
+    private final boolean touchMouse;
+    private int mousePointer = -1, mouseExtraPointer = -1;
+    private float mouseX, mouseY, mouseStartX, mouseStartY, mouseRestX, mouseRestY;
+    private long mouseDownTime;
+    private boolean mouseMoved, mouseSecondFinger, mouseDragging;
+    private static final long MOUSE_TAP_MS = 250, MOUSE_HOLD_MS = 400;
     private float opacity;
     private Control selected;
     private float dragDx, dragDy;
@@ -95,6 +103,7 @@ public final class TouchControlsView extends View {
         super(context);
         this.editing = editing;
         preferences = context.getSharedPreferences("touch_controls", Context.MODE_PRIVATE);
+        touchMouse = preferences.getBoolean("mouse", false);
         visible = editing || preferences.getBoolean("visible", !hasPhysicalGamepad());
         controls = createControls();
         toggle = controls[0];
@@ -291,7 +300,10 @@ public final class TouchControlsView extends View {
                 final int id = event.getPointerId(index);
                 if (id >= held.length) break;
                 final Control c = controlAt(event.getX(index), event.getY(index));
-                if (c == null) break;
+                if (c == null) {
+                    if (touchMouse) consumed = mouseDown(event, index);
+                    break;
+                }
                 consumed = true;
                 if (c == toggle) {
                     visible = !visible;
@@ -311,6 +323,7 @@ public final class TouchControlsView extends View {
                         consumed = true;
                     }
                 }
+                if (mousePointer >= 0) consumed |= mouseMove(event);
                 break;
             case MotionEvent.ACTION_UP:
             case MotionEvent.ACTION_POINTER_UP: {
@@ -320,10 +333,14 @@ public final class TouchControlsView extends View {
                     held[id] = null;
                     consumed = true;
                 }
+                if (id == mousePointer || id == mouseExtraPointer) consumed |= mouseUp(event, id);
                 break;
             }
             case MotionEvent.ACTION_CANCEL:
                 releaseAll();
+                if (mouseDragging) mouse(0, 0, 1, false);
+                mousePointer = mouseExtraPointer = -1;
+                mouseDragging = false;
                 consumed = true;
                 break;
             default:
@@ -335,6 +352,67 @@ public final class TouchControlsView extends View {
             invalidate();
         }
         return consumed;
+    }
+
+    // ---- Сенсорная мышь ----
+
+    private boolean mouseDown(MotionEvent event, int index) {
+        final int id = event.getPointerId(index);
+        if (mousePointer >= 0) {
+            // Второй палец мимо кнопок, пока первый на экране: тап двумя пальцами — правый клик.
+            if (mouseExtraPointer >= 0) return false;
+            mouseExtraPointer = id;
+            mouseSecondFinger = true;
+            return true;
+        }
+        mousePointer = id;
+        mouseX = mouseStartX = event.getX(index);
+        mouseY = mouseStartY = event.getY(index);
+        mouseRestX = mouseRestY = 0;
+        mouseDownTime = event.getEventTime();
+        mouseMoved = mouseSecondFinger = mouseDragging = false;
+        return true;
+    }
+
+    private boolean mouseMove(MotionEvent event) {
+        final int index = event.findPointerIndex(mousePointer);
+        if (index < 0) return false;
+        final float x = event.getX(index), y = event.getY(index);
+        // Палец по всей ширине экрана — курсор по всей ширине кадра игры (1920 точек).
+        final float scale = 1920f / Math.max(1, Math.max(getWidth(), getHeight()));
+        final float dx = (x - mouseX) * scale + mouseRestX, dy = (y - mouseY) * scale + mouseRestY;
+        final int stepX = (int) dx, stepY = (int) dy;
+        mouseRestX = dx - stepX; mouseRestY = dy - stepY;
+        mouseX = x; mouseY = y;
+        if (!mouseMoved && Math.hypot(x - mouseStartX, y - mouseStartY) > 8 * getResources().getDisplayMetrics().density) {
+            mouseMoved = true;
+            if (!mouseSecondFinger && event.getEventTime() - mouseDownTime >= MOUSE_HOLD_MS) {
+                mouseDragging = true;
+                mouse(0, 0, 1, true);
+            }
+        }
+        if (mouseMoved && (stepX != 0 || stepY != 0)) mouse(stepX, stepY, 0, false);
+        return true;
+    }
+
+    private boolean mouseUp(MotionEvent event, int id) {
+        if (id == mouseExtraPointer) { mouseExtraPointer = -1; return true; }
+        if (mouseDragging) mouse(0, 0, 1, false);
+        else if (!mouseMoved && event.getEventTime() - mouseDownTime <= MOUSE_TAP_MS) {
+            final int button = mouseSecondFinger ? 2 : 1;
+            mouse(0, 0, button, true);
+            mouse(0, 0, button, false);
+        }
+        mousePointer = -1;
+        mouseDragging = false;
+        return true;
+    }
+
+    private static void mouse(int dx, int dy, int button, boolean pressed) {
+        try {
+            GameActivity.nativeTouchMouse(dx, dy, button, pressed);
+        } catch (UnsatisfiedLinkError ignored) {
+        }
     }
 
     // Редактор: касание выбирает элемент, перетаскивание двигает его; касание пустого места снимает выбор.
