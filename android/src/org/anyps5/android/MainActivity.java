@@ -840,7 +840,7 @@ public final class MainActivity extends Activity {
             String message;
             try (OutputStream raw = getContentResolver().openOutputStream(target); java.util.zip.ZipOutputStream zip = new java.util.zip.ZipOutputStream(raw)) {
                 File game = new File(getFilesDir(), "game");
-                for (String name : new String[] {"box64.log", "relinker.log", "relinker-modules.log", "launcher.env", "env.txt"}) {
+                for (String name : new String[] {"box64.log", "relinker.log", "relinker-modules.log", "relinker.log.to-intel", "launcher.env", "env.txt"}) {
                     File file = new File(game, name);
                     if (file.isFile()) { zip.putNextEntry(new ZipEntry(name)); Files.copy(file.toPath(), zip); zip.closeEntry(); }
                 }
@@ -1071,11 +1071,26 @@ public final class MainActivity extends Activity {
         }
         relink(game,new File(game,"app.elf"),"relinker.log");
     }
+    // --to-intel: инструкции, которые есть только у AMD (процессор PS5) и которых нет в box64 — SSE4a INSERTQ/EXTRQ
+    // (Mewgenics падал на INSERTQ с SIGILL), MONITORX, CLZERO, RDPRU, а также VRCPPS/VRSQRTPS с точностью AMD, —
+    // relinker заменяет эквивалентным кодом. Если замена невозможна (relinker тогда завершается с ошибкой),
+    // перелинковка повторяется без неё, как раньше.
     private void relink(File game, File result, String log) throws Exception {
+        try { relink(game, result, log, true); }
+        catch (Exception converted) {
+            try { Files.copy(new File(game, log).toPath(), new File(game, log + ".to-intel").toPath(), java.nio.file.StandardCopyOption.REPLACE_EXISTING); } catch (Exception ignored) {}
+            relink(game, result, log, false);
+        }
+    }
+    private void relink(File game, File result, String log, boolean toIntel) throws Exception {
         File relinker=new File(getApplicationInfo().nativeLibraryDir,"librelinker.so");
         if(!relinker.isFile())throw new Exception("В APK не найден Android relinker");
         File elf=new File(game,"eboot.elf");
-        ProcessBuilder pb=new ProcessBuilder(relinker.getAbsolutePath(),elf.getAbsolutePath(),result.getAbsolutePath());pb.directory(game);pb.redirectErrorStream(true);pb.redirectOutput(new File(game,log));pb.environment().put("LD_LIBRARY_PATH",getApplicationInfo().nativeLibraryDir);
+        java.util.List<String> command=new java.util.ArrayList<>();
+        command.add(relinker.getAbsolutePath());
+        if(toIntel)command.add("--to-intel");
+        command.add(elf.getAbsolutePath());command.add(result.getAbsolutePath());
+        ProcessBuilder pb=new ProcessBuilder(command);pb.directory(game);pb.redirectErrorStream(true);pb.redirectOutput(new File(game,log));pb.environment().put("LD_LIBRARY_PATH",getApplicationInfo().nativeLibraryDir);
         int code;try{code=pb.start().waitFor();}catch(Exception e){throw new Exception("Не удалось запустить relinker: "+e.getMessage());}
         if(code!=0||!result.isFile()){String detail="";try{java.util.List<String> lines=Files.readAllLines(new File(game,log).toPath());int from=Math.max(0,lines.size()-12);detail=android.text.TextUtils.join("\n",lines.subList(from,lines.size()));}catch(Exception ignored){}throw new Exception("Relinker завершился с кодом "+code+(detail.isEmpty()?"":"\n"+detail));}
         if(!result.setExecutable(true,false))throw new Exception("Не удалось разрешить запуск созданного "+result.getName());
@@ -1161,11 +1176,10 @@ public final class MainActivity extends Activity {
         String name = file.getName();
         return name.endsWith(".prx") && !name.endsWith(".guest.prx") && !Files.isSymbolicLink(file.toPath()) && file.isFile();
     }
-    // Версия раскладки перелинковки: app.elf, собранный раньше (все модули игры — зависимости app.elf), пересобирается.
-    private static final String RELINK_LAYOUT = "2";
+    // Версия раскладки перелинковки: app.elf, собранный раньше, пересобирается (2 — модули, которые игра грузит сама,
+    // не зависимости app.elf; 3 — замена инструкций AMD, --to-intel).
+    private static final String RELINK_LAYOUT = "3";
     private static boolean staleRelinkLayout(File game) {
-        File[] modules = new File(game, "prx").listFiles();
-        if (modules == null || modules.length == 0) return false;
         try { return !RELINK_LAYOUT.equals(new String(Files.readAllBytes(new File(game, ".relink-layout").toPath())).trim()); } catch (Exception e) { return true; }
     }
     private static boolean hasUnlinkedGameModules(File game) {
