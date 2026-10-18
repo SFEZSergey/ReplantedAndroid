@@ -86,6 +86,7 @@
 | `patches/sdl2-android-udev-once.patch` | SDL2 (подмодуль AnyPS5) |
 | `patches/box64-android-hwcap.patch` | box64: расширения процессора (атомарные LSE, FLAGM, FRINT, CRC32…) читаются через `getauxval` bionic; без него динарек в приложении видел только ASIMD |
 | `patches/anyps5-mouse-absolute.patch` | AnyPS5: функции мыши PS5 для абсолютных координат (их вызывает при старте Mewgenics, PPSA37318) |
+| `patches/anyps5-volume-2darray.patch` | AnyPS5: коммит 945b970 из основного репозитория (загрузки и записи 2D-массивов в 3D-текстуры), нужен Mewgenics; только код |
 | `cmake/` | toolchain-файлы CMake (bionic arm64 и x86-64 glibc), cross-файл Meson для Mesa, `box64-emu.sh` |
 | `compat/` | заголовки совместимости (ndk-shim, box64-android-compat) |
 
@@ -100,6 +101,7 @@ git clone --recursive https://github.com/SFEZSergey/ReplantedAndroid
 cd ReplantedAndroid
 git -C external/AnyPS5/3rdparty/SDL2 apply ../../../../patches/sdl2-android-udev-once.patch
 git -C external/AnyPS5 apply ../../patches/anyps5-mouse-absolute.patch
+git -C external/AnyPS5 apply ../../patches/anyps5-volume-2darray.patch
 ```
 
 1. **AnyPS5, нативная группа (bionic arm64)** → `external/AnyPS5/build-bionic`:

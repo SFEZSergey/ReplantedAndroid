@@ -91,6 +91,7 @@ wrapper: the APK launcher (Java), the native entry point `sdl_main.c` and the bi
 | `patches/sdl2-android-udev-once.patch` | SDL2 (an AnyPS5 submodule) |
 | `patches/box64-android-hwcap.patch` | box64: CPU extensions (LSE atomics, FLAGM, FRINT, CRC32…) read through bionic's `getauxval`; without it the dynarec in the app saw ASIMD only |
 | `patches/anyps5-mouse-absolute.patch` | AnyPS5: the PS5 mouse absolute-position functions (Mewgenics, PPSA37318, calls them at start) |
+| `patches/anyps5-volume-2darray.patch` | AnyPS5: upstream commit 945b970 (2D-array image loads and stores on 3D textures), which Mewgenics needs; code only |
 | `cmake/` | CMake toolchain files (bionic arm64 and x86-64 glibc), Meson cross file for Mesa, `box64-emu.sh` |
 | `compat/` | compatibility headers (ndk-shim, box64-android-compat) |
 
@@ -105,6 +106,7 @@ git clone --recursive https://github.com/SFEZSergey/ReplantedAndroid
 cd ReplantedAndroid
 git -C external/AnyPS5/3rdparty/SDL2 apply ../../../../patches/sdl2-android-udev-once.patch
 git -C external/AnyPS5 apply ../../patches/anyps5-mouse-absolute.patch
+git -C external/AnyPS5 apply ../../patches/anyps5-volume-2darray.patch
 ```
 
 1. **AnyPS5, native group (bionic arm64)** → `external/AnyPS5/build-bionic`:

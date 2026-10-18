@@ -56,7 +56,9 @@ static mouse_publish_fn mouse_publish(void) {
     static mouse_publish_fn publish;
     if (publish == NULL && mouse_library[0] != '\0') {
         void *library = dlopen(mouse_library, RTLD_NOW | RTLD_NOLOAD);
+        // Имя в форке AnyPS5 и в основном репозитории (там суффикс _nid_no_patch).
         if (library != NULL) publish = (mouse_publish_fn)dlsym(library, "MousePublishInput_nid_postfix");
+        if (library != NULL && publish == NULL) publish = (mouse_publish_fn)dlsym(library, "MousePublishInput_nid_no_patch");
     }
     return publish;
 }
