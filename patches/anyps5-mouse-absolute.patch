@@ -1,3 +1,49 @@
+diff --git a/core/libs/prx/aps5native/stubs/libSceMouse.cpp b/core/libs/prx/aps5native/stubs/libSceMouse.cpp
+index e0577a584..8886240d2 100644
+--- a/core/libs/prx/aps5native/stubs/libSceMouse.cpp
++++ b/core/libs/prx/aps5native/stubs/libSceMouse.cpp
+@@ -22,11 +22,15 @@ const char* const names[] = {
+     "sceMouseInit",
+     "sceMouseOpen",
+     "sceMouseRead",
++    "sceMouseReadAbsolutePosition",
++    "sceMouseResetAbsolutePosition",
++    "sceMouseSetAbsoluteHighPrecisionMode",
++    "sceMouseSetAbsoluteVirtualScreenSize",
+ };
+-void* functions[5] = {};
++void* functions[9] = {};
+ 
+ __attribute__((constructor)) void loadNative() {
+-    Aps5NativeResolve_nid_no_patch("libSceMouse.prx", names, functions, 5);
++    Aps5NativeResolve_nid_no_patch("libSceMouse.prx", names, functions, 9);
+ }
+ 
+ } // namespace
+@@ -55,3 +59,23 @@ extern "C" std::uint64_t sceMouseRead(std::uint64_t a0, std::uint64_t a1, std::u
+     if (functions[4] == nullptr) Aps5NativeMissing_nid_no_patch("sceMouseRead");
+     return Aps5NativeCall_nid_no_patch(functions[4], a0, a1, a2, 0, 0, 0, 0, 0);
+ }
++
++extern "C" std::uint64_t sceMouseReadAbsolutePosition(std::uint64_t a0, std::uint64_t a1, std::uint64_t a2) {
++    if (functions[5] == nullptr) Aps5NativeMissing_nid_no_patch("sceMouseReadAbsolutePosition");
++    return Aps5NativeCall_nid_no_patch(functions[5], a0, a1, a2, 0, 0, 0, 0, 0);
++}
++
++extern "C" std::uint64_t sceMouseResetAbsolutePosition(std::uint64_t a0) {
++    if (functions[6] == nullptr) Aps5NativeMissing_nid_no_patch("sceMouseResetAbsolutePosition");
++    return Aps5NativeCall_nid_no_patch(functions[6], a0, 0, 0, 0, 0, 0, 0, 0);
++}
++
++extern "C" std::uint64_t sceMouseSetAbsoluteHighPrecisionMode(std::uint64_t a0, std::uint64_t a1) {
++    if (functions[7] == nullptr) Aps5NativeMissing_nid_no_patch("sceMouseSetAbsoluteHighPrecisionMode");
++    return Aps5NativeCall_nid_no_patch(functions[7], a0, a1, 0, 0, 0, 0, 0, 0);
++}
++
++extern "C" std::uint64_t sceMouseSetAbsoluteVirtualScreenSize(std::uint64_t a0, std::uint64_t a1, std::uint64_t a2) {
++    if (functions[8] == nullptr) Aps5NativeMissing_nid_no_patch("sceMouseSetAbsoluteVirtualScreenSize");
++    return Aps5NativeCall_nid_no_patch(functions[8], a0, a1, a2, 0, 0, 0, 0, 0);
++}
 diff --git a/core/libs/prx/libSceMouse/Export.cpp b/core/libs/prx/libSceMouse/Export.cpp
 index 9d820d245..b96c06edb 100644
 --- a/core/libs/prx/libSceMouse/Export.cpp
