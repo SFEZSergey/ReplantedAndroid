@@ -92,6 +92,7 @@ wrapper: the APK launcher (Java), the native entry point `sdl_main.c` and the bi
 | `patches/box64-android-hwcap.patch` | box64: CPU extensions (LSE atomics, FLAGM, FRINT, CRC32…) read through bionic's `getauxval`; without it the dynarec in the app saw ASIMD only |
 | `patches/anyps5-mouse-absolute.patch` | AnyPS5: the PS5 mouse absolute-position functions (Mewgenics, PPSA37318, calls them at start) |
 | `patches/anyps5-volume-2darray.patch` | AnyPS5: upstream commit 945b970 (2D-array image loads and stores on 3D textures), which Mewgenics needs; code only |
+| `patches/anyps5-line-on-plane.patch` | AnyPS5: 1D image loads and stores on 2D and 2D-array textures (the missing row and slice are zero); Mewgenics reads a 9100x1 2D-array line this way in dozens of draws per frame |
 | `patches/anyps5-skip-failed-shaders.patch` | AnyPS5: `APS5_SKIP_FAILED_SHADERS` (on by default in the APK) leaves out a draw or dispatch whose shader is unsupported instead of ending the game, as upstream does |
 | `cmake/` | CMake toolchain files (bionic arm64 and x86-64 glibc), Meson cross file for Mesa, `box64-emu.sh` |
 | `compat/` | compatibility headers (ndk-shim, box64-android-compat) |
@@ -108,6 +109,7 @@ cd ReplantedAndroid
 git -C external/AnyPS5/3rdparty/SDL2 apply ../../../../patches/sdl2-android-udev-once.patch
 git -C external/AnyPS5 apply ../../patches/anyps5-mouse-absolute.patch
 git -C external/AnyPS5 apply ../../patches/anyps5-volume-2darray.patch
+git -C external/AnyPS5 apply ../../patches/anyps5-line-on-plane.patch
 git -C external/AnyPS5 apply ../../patches/anyps5-skip-failed-shaders.patch
 ```
 
