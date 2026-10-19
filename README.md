@@ -95,6 +95,7 @@ wrapper: the APK launcher (Java), the native entry point `sdl_main.c` and the bi
 | `patches/anyps5-line-on-plane.patch` | AnyPS5: 1D image loads and stores on 2D and 2D-array textures (the missing row and slice are zero); Mewgenics reads a 9100x1 2D-array line this way in dozens of draws per frame |
 | `patches/anyps5-skip-failed-shaders.patch` | AnyPS5: `APS5_SKIP_FAILED_SHADERS` (on by default in the APK) leaves out a draw or dispatch whose shader is unsupported instead of ending the game, as upstream does |
 | `patches/anyps5-pass-timing.patch` | AnyPS5: with `APS5_PROFILE_GPU=1` the `[gputime]` report also splits the draw time by render pass (extent, color targets, fragment program) and describes each pass once |
+| `patches/anyps5-host-ftz.patch` | AnyPS5: `APS5_HOST_FTZ=1` leaves f32 denormals to the host GPU's own flush instead of emulating the guest's flush around every float operation (a large share of the instructions in Mewgenics' shaders) |
 | `cmake/` | CMake toolchain files (bionic arm64 and x86-64 glibc), Meson cross file for Mesa, `box64-emu.sh` |
 | `compat/` | compatibility headers (ndk-shim, box64-android-compat) |
 
@@ -113,6 +114,7 @@ git -C external/AnyPS5 apply ../../patches/anyps5-volume-2darray.patch
 git -C external/AnyPS5 apply ../../patches/anyps5-line-on-plane.patch
 git -C external/AnyPS5 apply ../../patches/anyps5-skip-failed-shaders.patch
 git -C external/AnyPS5 apply ../../patches/anyps5-pass-timing.patch
+git -C external/AnyPS5 apply ../../patches/anyps5-host-ftz.patch
 ```
 
 1. **AnyPS5, native group (bionic arm64)** → `external/AnyPS5/build-bionic`:

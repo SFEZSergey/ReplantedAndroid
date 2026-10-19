@@ -1,0 +1,66 @@
+diff --git a/core/shader/recompiler/CacheKey.hpp b/core/shader/recompiler/CacheKey.hpp
+index be68766aa..3810a5fca 100644
+--- a/core/shader/recompiler/CacheKey.hpp
++++ b/core/shader/recompiler/CacheKey.hpp
+@@ -89,6 +89,7 @@ private:
+         append(key, request.target);
+         append(key, DebugProbeActive());
+         append(key, RayTracingStrict());
++        append(key, HostDenormalFlush());
+         append(key, RayTracingMiss());
+     }
+ 
+diff --git a/core/shader/recompiler/Recompiler.hpp b/core/shader/recompiler/Recompiler.hpp
+index e2ef5de83..3254c8f5f 100644
+--- a/core/shader/recompiler/Recompiler.hpp
++++ b/core/shader/recompiler/Recompiler.hpp
+@@ -594,6 +594,8 @@ struct ResourceCapture;
+ void SetDebugProbeActive(bool active);
+ [[nodiscard]] bool DebugProbeActive();
+ [[nodiscard]] bool RayTracingStrict();
++// APS5_HOST_FTZ=1: f32 denormals are left to the host's flush instead of emulated per operand.
++[[nodiscard]] bool HostDenormalFlush();
+ [[nodiscard]] bool RayTracingMiss();
+ 
+ struct RectListShaders {
+diff --git a/core/shader/recompiler/Translation/src/DispatchInstructions.cpp b/core/shader/recompiler/Translation/src/DispatchInstructions.cpp
+index e2c9f9f7b..7789c97b5 100644
+--- a/core/shader/recompiler/Translation/src/DispatchInstructions.cpp
++++ b/core/shader/recompiler/Translation/src/DispatchInstructions.cpp
+@@ -85,6 +85,14 @@ bool DebugProbeActive() {
+     return g_debugProbeActive.load();
+ }
+ 
++bool HostDenormalFlush() {
++    static const bool flush = [] {
++        const char* text = std::getenv("APS5_HOST_FTZ");
++        return text != nullptr && std::strcmp(text, "1") == 0;
++    }();
++    return flush;
++}
++
+ bool RayTracingStrict() {
+     static const bool strict = [] {
+         const char* text = std::getenv("APS5_RAYTRACING");
+diff --git a/core/shader/recompiler/Translation/src/VectorInstructions.cpp b/core/shader/recompiler/Translation/src/VectorInstructions.cpp
+index 645b98534..abc1cb187 100644
+--- a/core/shader/recompiler/Translation/src/VectorInstructions.cpp
++++ b/core/shader/recompiler/Translation/src/VectorInstructions.cpp
+@@ -1,5 +1,6 @@
+ #include "Translation/VectorInstructions.hpp"
+ #include "Translation/TranslationContext.hpp"
++#include "Recompiler.hpp"
+ #include <stdexcept>
+ 
+ namespace ShaderRecompiler {
+@@ -24,6 +25,10 @@ bool roundsProductSeparately(const RdnaInstruction& inst) {
+ }
+ 
+ std::uint32_t TranslationContext::f32DenormalFlushFor(const RdnaInstruction& inst) const {
++    // APS5_HOST_FTZ=1: the host flushes f32 denormals itself (Adreno does in hardware), so the
++    // per-operand flush and the tiny-product checks are left out; denormal inputs and results may
++    // then differ from the guest in the last bits, which no graphics shader is expected to notice.
++    if (HostDenormalFlush()) return 0u;
+     std::uint32_t flush = 0u;
+     switch (inst.op) {
+     case RdnaOpcode::VAddF32:

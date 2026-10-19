@@ -90,6 +90,7 @@
 | `patches/anyps5-line-on-plane.patch` | AnyPS5: одномерные загрузки и записи в 2D-текстуры и 2D-массивы (недостающие строка и слой — нули); так Mewgenics читает «линию» 9100×1 в десятках отрисовок за кадр |
 | `patches/anyps5-skip-failed-shaders.patch` | AnyPS5: `APS5_SKIP_FAILED_SHADERS` (в APK включён) пропускает отрисовку с неподдерживаемым шейдером вместо закрытия игры, как в основном репозитории |
 | `patches/anyps5-pass-timing.patch` | AnyPS5: при `APS5_PROFILE_GPU=1` отчёт `[gputime]` дополнительно делит время отрисовки по проходам (размер, цели, фрагментный шейдер) и один раз описывает каждый проход |
+| `patches/anyps5-host-ftz.patch` | AnyPS5: `APS5_HOST_FTZ=1` оставляет сброс денормалей f32 самому GPU вместо эмуляции вокруг каждой float-операции (заметная доля инструкций в шейдерах Mewgenics) |
 | `cmake/` | toolchain-файлы CMake (bionic arm64 и x86-64 glibc), cross-файл Meson для Mesa, `box64-emu.sh` |
 | `compat/` | заголовки совместимости (ndk-shim, box64-android-compat) |
 
@@ -108,6 +109,7 @@ git -C external/AnyPS5 apply ../../patches/anyps5-volume-2darray.patch
 git -C external/AnyPS5 apply ../../patches/anyps5-line-on-plane.patch
 git -C external/AnyPS5 apply ../../patches/anyps5-skip-failed-shaders.patch
 git -C external/AnyPS5 apply ../../patches/anyps5-pass-timing.patch
+git -C external/AnyPS5 apply ../../patches/anyps5-host-ftz.patch
 ```
 
 1. **AnyPS5, нативная группа (bionic arm64)** → `external/AnyPS5/build-bionic`:
