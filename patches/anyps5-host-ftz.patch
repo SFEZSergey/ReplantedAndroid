@@ -1,36 +1,47 @@
 diff --git a/core/shader/recompiler/CacheKey.hpp b/core/shader/recompiler/CacheKey.hpp
-index be68766aa..3810a5fca 100644
+index be68766aa..16422077d 100644
 --- a/core/shader/recompiler/CacheKey.hpp
 +++ b/core/shader/recompiler/CacheKey.hpp
-@@ -89,6 +89,7 @@ private:
+@@ -89,6 +89,8 @@ private:
          append(key, request.target);
          append(key, DebugProbeActive());
          append(key, RayTracingStrict());
 +        append(key, HostDenormalFlush());
++        append(key, HostNanPropagation());
          append(key, RayTracingMiss());
      }
  
 diff --git a/core/shader/recompiler/Recompiler.hpp b/core/shader/recompiler/Recompiler.hpp
-index e2ef5de83..3254c8f5f 100644
+index e2ef5de83..6b3bb4b17 100644
 --- a/core/shader/recompiler/Recompiler.hpp
 +++ b/core/shader/recompiler/Recompiler.hpp
-@@ -594,6 +594,8 @@ struct ResourceCapture;
+@@ -594,6 +594,10 @@ struct ResourceCapture;
  void SetDebugProbeActive(bool active);
  [[nodiscard]] bool DebugProbeActive();
  [[nodiscard]] bool RayTracingStrict();
 +// APS5_HOST_FTZ=1: f32 denormals are left to the host's flush instead of emulated per operand.
 +[[nodiscard]] bool HostDenormalFlush();
++// APS5_HOST_NAN=1: f32 NaN results are the host's NaN instead of the guest's propagated payload.
++[[nodiscard]] bool HostNanPropagation();
  [[nodiscard]] bool RayTracingMiss();
  
  struct RectListShaders {
 diff --git a/core/shader/recompiler/Translation/src/DispatchInstructions.cpp b/core/shader/recompiler/Translation/src/DispatchInstructions.cpp
-index e2c9f9f7b..7789c97b5 100644
+index e2c9f9f7b..49db78735 100644
 --- a/core/shader/recompiler/Translation/src/DispatchInstructions.cpp
 +++ b/core/shader/recompiler/Translation/src/DispatchInstructions.cpp
-@@ -85,6 +85,14 @@ bool DebugProbeActive() {
+@@ -85,6 +85,22 @@ bool DebugProbeActive() {
      return g_debugProbeActive.load();
  }
  
++bool HostNanPropagation() {
++    static const bool host = [] {
++        const char* text = std::getenv("APS5_HOST_NAN");
++        return text != nullptr && std::strcmp(text, "1") == 0;
++    }();
++    return host;
++}
++
 +bool HostDenormalFlush() {
 +    static const bool flush = [] {
 +        const char* text = std::getenv("APS5_HOST_FTZ");
@@ -42,6 +53,27 @@ index e2c9f9f7b..7789c97b5 100644
  bool RayTracingStrict() {
      static const bool strict = [] {
          const char* text = std::getenv("APS5_RAYTRACING");
+diff --git a/core/shader/recompiler/Translation/src/TranslationContext/OperandAccess.cpp b/core/shader/recompiler/Translation/src/TranslationContext/OperandAccess.cpp
+index 27b6e20f8..03a920d52 100644
+--- a/core/shader/recompiler/Translation/src/TranslationContext/OperandAccess.cpp
++++ b/core/shader/recompiler/Translation/src/TranslationContext/OperandAccess.cpp
+@@ -1,5 +1,6 @@
+ #include "RdnaDecoder/RdnaInstructionDecoder.hpp"
+ #include "Translation/TranslationContext.hpp"
++#include "Recompiler.hpp"
+ #include <algorithm>
+ #include <array>
+ #include <stdexcept>
+@@ -342,6 +343,9 @@ IrU32 TranslationContext::quietNan32(IrU32 bits) {
+ }
+ 
+ IrValue* TranslationContext::nanResultF32(std::initializer_list<IrValue*> sources, IrValue* result, IrValue* invalidProduct) {
++    // APS5_HOST_NAN=1: a NaN result keeps the host's NaN instead of the guest's quieted source or
++    // default NaN (only the payload bits differ; every NaN stays a NaN).
++    if (HostNanPropagation()) return result;
+     const auto isNan = [&](IrValue& bits) -> IrValue& { return ir.UGreaterThan(ir.BitwiseAnd(bits, ir.Constant(0x7fffffffu)), ir.Constant(0x7f800000u)); };
+     IrValue* bits = &ir.BitCastU32(*result);
+     bits = &ir.Select(isNan(*bits), ir.Constant(0xffc00000u), *bits);
 diff --git a/core/shader/recompiler/Translation/src/VectorInstructions.cpp b/core/shader/recompiler/Translation/src/VectorInstructions.cpp
 index 645b98534..abc1cb187 100644
 --- a/core/shader/recompiler/Translation/src/VectorInstructions.cpp
