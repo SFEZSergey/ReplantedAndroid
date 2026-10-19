@@ -1,21 +1,22 @@
 diff --git a/core/shader/recompiler/CacheKey.hpp b/core/shader/recompiler/CacheKey.hpp
-index be68766aa..16422077d 100644
+index be68766aa..7ef79e809 100644
 --- a/core/shader/recompiler/CacheKey.hpp
 +++ b/core/shader/recompiler/CacheKey.hpp
-@@ -89,6 +89,8 @@ private:
+@@ -89,6 +89,9 @@ private:
          append(key, request.target);
          append(key, DebugProbeActive());
          append(key, RayTracingStrict());
 +        append(key, HostDenormalFlush());
 +        append(key, HostNanPropagation());
++        append(key, HostDppSources());
          append(key, RayTracingMiss());
      }
  
 diff --git a/core/shader/recompiler/Recompiler.hpp b/core/shader/recompiler/Recompiler.hpp
-index e2ef5de83..6b3bb4b17 100644
+index e2ef5de83..3c66566dc 100644
 --- a/core/shader/recompiler/Recompiler.hpp
 +++ b/core/shader/recompiler/Recompiler.hpp
-@@ -594,6 +594,10 @@ struct ResourceCapture;
+@@ -594,6 +594,12 @@ struct ResourceCapture;
  void SetDebugProbeActive(bool active);
  [[nodiscard]] bool DebugProbeActive();
  [[nodiscard]] bool RayTracingStrict();
@@ -23,17 +24,136 @@ index e2ef5de83..6b3bb4b17 100644
 +[[nodiscard]] bool HostDenormalFlush();
 +// APS5_HOST_NAN=1: f32 NaN results are the host's NaN instead of the guest's propagated payload.
 +[[nodiscard]] bool HostNanPropagation();
++// APS5_HOST_DPP=1: DPP moves read inactive source lanes instead of keeping the old destination.
++[[nodiscard]] bool HostDppSources();
  [[nodiscard]] bool RayTracingMiss();
  
  struct RectListShaders {
+diff --git a/core/shader/recompiler/SpirvBackend/src/SpirvAlu/SpirvAluEmitterFloat64.cpp b/core/shader/recompiler/SpirvBackend/src/SpirvAlu/SpirvAluEmitterFloat64.cpp
+index 1fb812638..6e67dbfc5 100644
+--- a/core/shader/recompiler/SpirvBackend/src/SpirvAlu/SpirvAluEmitterFloat64.cpp
++++ b/core/shader/recompiler/SpirvBackend/src/SpirvAlu/SpirvAluEmitterFloat64.cpp
+@@ -1,4 +1,5 @@
+ #include "SpirvBackend/SpirvEmitterInstructions.hpp"
++#include "Recompiler.hpp"
+ #include <spirv/unified1/GLSL.std.450.h>
+ #include <spirv/unified1/spirv.hpp>
+ #include <array>
+@@ -258,7 +259,7 @@ std::uint32_t FlushDenormal32(SpirvEmitterState& state, std::uint32_t value, boo
+ std::uint32_t Interpolate(SpirvEmitterState& state, std::uint32_t delta, std::uint32_t coordinate, std::uint32_t base, bool halfResult, std::uint32_t mode) {
+     const auto u32 = TypeU32(state);
+     const bool quietNans = halfResult || (mode & InterpolationQuiet) != 0u;
+-    const bool flush32 = (mode & InterpolationFlush32) != 0u;
++    const bool flush32 = (mode & InterpolationFlush32) != 0u && !HostDenormalFlush();
+     const bool flush16 = (mode & InterpolationFlush16) != 0u;
+     delta = FlushDenormal32(state, delta, flush16, 0x38800000u);
+     coordinate = FlushDenormal32(state, coordinate, flush32, 0x00800000u);
+diff --git a/core/shader/recompiler/SpirvBackend/src/SpirvAlu/SpirvAluEmitterMath.cpp b/core/shader/recompiler/SpirvBackend/src/SpirvAlu/SpirvAluEmitterMath.cpp
+index 2e3525069..ec1eb260b 100644
+--- a/core/shader/recompiler/SpirvBackend/src/SpirvAlu/SpirvAluEmitterMath.cpp
++++ b/core/shader/recompiler/SpirvBackend/src/SpirvAlu/SpirvAluEmitterMath.cpp
+@@ -1,4 +1,5 @@
+ #include "SpirvBackend/SpirvEmitterInstructions.hpp"
++#include "Recompiler.hpp"
+ #include "SpirvBackend/SpirvMemory/SpirvSubgroup.hpp"
+ #include "IntermediateRepresentation/IrValue.hpp"
+ #include <spirv/unified1/GLSL.std.450.h>
+@@ -195,7 +196,9 @@ std::uint32_t EmitDppWriteCondition(SpirvValueEmitContext& ctx, const IrValue& i
+         const auto bounded = state.module.AllocateId();
+         state.module.AddFunction(spv::OpLogicalAnd, TypeBool(state), bounded, writable, target.valid);
+         writable = bounded;
+-        if (!flags.fetchInactive && (flags.control & DppMoveFlags::Lanes8) == 0u) {
++        // APS5_HOST_DPP=1: a lane reads its DPP source whether or not that lane is active (the
++        // value an inactive lane holds instead of the old destination): no ballot per move.
++        if (!flags.fetchInactive && (flags.control & DppMoveFlags::Lanes8) == 0u && !HostDppSources()) {
+             const auto sourceActive = EmitBallotLaneActiveBool(state, ctx.Ballot(inst.Argument(2)), target.lane);
+             writable = Binary(state, spv::OpLogicalAnd, TypeBool(state), writable, sourceActive);
+         }
+@@ -1240,6 +1243,9 @@ static std::uint32_t EmitNativeF32ToF16BitsRte(SpirvEmitterState& state, std::ui
+     state.module.EmitCapability(spv::CapabilityFloat16);
+     state.module.EmitCapability(spv::CapabilityRoundingModeRTE);
+     state.module.EmitCapability(spv::CapabilityDenormPreserve);
++    // The module setup leaves these out for f32 under APS5_HOST_NAN; the f16 mode below needs them.
++    state.module.EmitCapability(spv::CapabilitySignedZeroInfNanPreserve);
++    state.module.EmitExtension("SPV_KHR_float_controls");
+     if (!state.nativeF16ModesEmitted) {
+         state.module.AddExecutionMode(state.mainFunc, spv::ExecutionModeRoundingModeRTE, 16u);
+         state.module.AddExecutionMode(state.mainFunc, spv::ExecutionModeDenormPreserve, 16u);
+diff --git a/core/shader/recompiler/SpirvBackend/src/SpirvMemory/SpirvModuleSetup.cpp b/core/shader/recompiler/SpirvBackend/src/SpirvMemory/SpirvModuleSetup.cpp
+index db279fdf5..bb62e4db7 100644
+--- a/core/shader/recompiler/SpirvBackend/src/SpirvMemory/SpirvModuleSetup.cpp
++++ b/core/shader/recompiler/SpirvBackend/src/SpirvMemory/SpirvModuleSetup.cpp
+@@ -1,4 +1,5 @@
+ #include "SpirvBackend/SpirvMemory/SpirvModuleSetup.hpp"
++#include "Recompiler.hpp"
+ #include "SpirvBackend/SpirvMemory/SpirvTypes.hpp"
+ #include "SpirvBackend/SpirvMemory/SpirvConstants.hpp"
+ #include "SpirvBackend/SpirvMemory/SpirvInputOutput.hpp"
+@@ -138,9 +139,13 @@ void DefineModule(SpirvEmitterState& state) {
+         state.module.EmitCapability(spv::CapabilityFragmentBarycentricKHR);
+         state.module.EmitExtension("SPV_KHR_fragment_shader_barycentric");
+     }
+-    state.module.EmitCapability(spv::CapabilitySignedZeroInfNanPreserve);
+-    state.module.EmitExtension("SPV_KHR_float_controls");
+-    state.module.AddExecutionMode(state.mainFunc, spv::ExecutionModeSignedZeroInfNanPreserve, 32u);
++    // APS5_HOST_NAN=1 leaves f32 signed zeros, infinities and NaNs to the host's optimizer.
++    const bool preserve32 = !HostNanPropagation();
++    if (preserve32 || state.requirements.float64) {
++        state.module.EmitCapability(spv::CapabilitySignedZeroInfNanPreserve);
++        state.module.EmitExtension("SPV_KHR_float_controls");
++    }
++    if (preserve32) state.module.AddExecutionMode(state.mainFunc, spv::ExecutionModeSignedZeroInfNanPreserve, 32u);
+     if (state.requirements.float64) {
+         if (std::find(state.supportedCapabilities.begin(), state.supportedCapabilities.end(), static_cast<std::uint32_t>(spv::CapabilityFloat64)) == state.supportedCapabilities.end()) {
+             throw std::runtime_error("64-bit float instructions need the Float64 capability, which the device lacks");
+diff --git a/core/shader/recompiler/SpirvBackend/src/SpirvModuleEmitter.cpp b/core/shader/recompiler/SpirvBackend/src/SpirvModuleEmitter.cpp
+index 8c968fb3f..69224030d 100644
+--- a/core/shader/recompiler/SpirvBackend/src/SpirvModuleEmitter.cpp
++++ b/core/shader/recompiler/SpirvBackend/src/SpirvModuleEmitter.cpp
+@@ -1,4 +1,5 @@
+ #include "SpirvBackend/SpirvModuleEmitter.hpp"
++#include "Recompiler.hpp"
+ #include "SpirvBackend/SpirvBufferFormat.hpp"
+ #include "SpirvBackend/SpirvEmitterHelpers.hpp"
+ #include "SpirvBackend/SpirvEmitterInstructions.hpp"
+@@ -881,6 +882,13 @@ std::uint32_t EmitClassMaskF32(SpirvEmitterState& state, std::uint32_t value, st
+ }
+ 
+ std::uint32_t EmitMinMaxF32Value(SpirvEmitterState& state, std::uint32_t lhs, std::uint32_t rhs, bool maxValue) {
++    // APS5_HOST_NAN=1: the host's NMin/NMax (the operand that is not a NaN, as the guest returns);
++    // the sign of an equal pair of zeros is the host's.
++    if (HostNanPropagation()) {
++        const auto result = state.module.AllocateId();
++        state.module.AddFunction(spv::OpExtInst, TypeF32(state), result, GlslStd450(state), maxValue ? GLSLstd450NMax : GLSLstd450NMin, lhs, rhs);
++        return result;
++    }
+     const auto lhsClass = EmitClassifyF32(state, lhs);
+     const auto rhsClass = EmitClassifyF32(state, rhs);
+ 
+@@ -896,6 +904,7 @@ std::uint32_t EmitMinMaxF32Value(SpirvEmitterState& state, std::uint32_t lhs, st
+ }
+ 
+ std::uint32_t EmitFlushF32DenormToSignedZero(SpirvEmitterState& state, std::uint32_t value) {
++    if (HostDenormalFlush()) return value;
+     const auto bits = state.module.AllocateId();
+     const auto absBits = state.module.AllocateId();
+     const auto signBits = state.module.AllocateId();
 diff --git a/core/shader/recompiler/Translation/src/DispatchInstructions.cpp b/core/shader/recompiler/Translation/src/DispatchInstructions.cpp
-index e2c9f9f7b..49db78735 100644
+index e2c9f9f7b..92e8a9010 100644
 --- a/core/shader/recompiler/Translation/src/DispatchInstructions.cpp
 +++ b/core/shader/recompiler/Translation/src/DispatchInstructions.cpp
-@@ -85,6 +85,22 @@ bool DebugProbeActive() {
+@@ -85,6 +85,30 @@ bool DebugProbeActive() {
      return g_debugProbeActive.load();
  }
  
++bool HostDppSources() {
++    static const bool host = [] {
++        const char* text = std::getenv("APS5_HOST_DPP");
++        return text != nullptr && std::strcmp(text, "1") == 0;
++    }();
++    return host;
++}
++
 +bool HostNanPropagation() {
 +    static const bool host = [] {
 +        const char* text = std::getenv("APS5_HOST_NAN");
@@ -54,7 +174,7 @@ index e2c9f9f7b..49db78735 100644
      static const bool strict = [] {
          const char* text = std::getenv("APS5_RAYTRACING");
 diff --git a/core/shader/recompiler/Translation/src/TranslationContext/OperandAccess.cpp b/core/shader/recompiler/Translation/src/TranslationContext/OperandAccess.cpp
-index 27b6e20f8..03a920d52 100644
+index 27b6e20f8..60a57a801 100644
 --- a/core/shader/recompiler/Translation/src/TranslationContext/OperandAccess.cpp
 +++ b/core/shader/recompiler/Translation/src/TranslationContext/OperandAccess.cpp
 @@ -1,5 +1,6 @@
@@ -74,6 +194,15 @@ index 27b6e20f8..03a920d52 100644
      const auto isNan = [&](IrValue& bits) -> IrValue& { return ir.UGreaterThan(ir.BitwiseAnd(bits, ir.Constant(0x7fffffffu)), ir.Constant(0x7f800000u)); };
      IrValue* bits = &ir.BitCastU32(*result);
      bits = &ir.Select(isNan(*bits), ir.Constant(0xffc00000u), *bits);
+@@ -382,7 +386,7 @@ IrF32 TranslationContext::applyF32ResultModifiers(const RdnaOperand& operand, Ir
+             const std::uint32_t exponentStep = operand.omod == 1u ? 0x00800000u : 0x01000000u;
+             result = &ir.Select(ir.ULessThan(magnitude, ir.Constant(0x7f800000u - exponentStep)), ir.IAdd(bits, ir.Constant(exponentStep)), ir.BitwiseOr(sign, ir.Constant(0x7f800000u)));
+         }
+-        result = &ir.Select(ir.ULessThan(magnitude, ir.Constant(0x00800000u)), ir.Constant(0u), *result);
++        if (!HostDenormalFlush()) result = &ir.Select(ir.ULessThan(magnitude, ir.Constant(0x00800000u)), ir.Constant(0u), *result);
+         result = &ir.Select(ir.UGreaterThan(magnitude, ir.Constant(0x7f7fffffu)), bits, *result);
+         value = IrF32(ir.BitCastF32(*result));
+     }
 diff --git a/core/shader/recompiler/Translation/src/VectorInstructions.cpp b/core/shader/recompiler/Translation/src/VectorInstructions.cpp
 index 645b98534..abc1cb187 100644
 --- a/core/shader/recompiler/Translation/src/VectorInstructions.cpp
