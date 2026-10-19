@@ -23,10 +23,10 @@ index 903746c24..8acb57e0a 100644
                  }
                  const bool isSubgroupCapability = subgroupOperations != 0;
 diff --git a/core/shader/recompiler/CacheKey.hpp b/core/shader/recompiler/CacheKey.hpp
-index be68766aa..99db11920 100644
+index be68766aa..fa9aa2fbf 100644
 --- a/core/shader/recompiler/CacheKey.hpp
 +++ b/core/shader/recompiler/CacheKey.hpp
-@@ -89,6 +89,10 @@ private:
+@@ -89,6 +89,11 @@ private:
          append(key, request.target);
          append(key, DebugProbeActive());
          append(key, RayTracingStrict());
@@ -34,14 +34,15 @@ index be68766aa..99db11920 100644
 +        append(key, HostNanPropagation());
 +        append(key, HostDppSources());
 +        append(key, QuadDppMoves());
++        append(key, HostContraction());
          append(key, RayTracingMiss());
      }
  
 diff --git a/core/shader/recompiler/Recompiler.hpp b/core/shader/recompiler/Recompiler.hpp
-index e2ef5de83..86e04977d 100644
+index e2ef5de83..d3a85f453 100644
 --- a/core/shader/recompiler/Recompiler.hpp
 +++ b/core/shader/recompiler/Recompiler.hpp
-@@ -594,6 +594,14 @@ struct ResourceCapture;
+@@ -594,6 +594,16 @@ struct ResourceCapture;
  void SetDebugProbeActive(bool active);
  [[nodiscard]] bool DebugProbeActive();
  [[nodiscard]] bool RayTracingStrict();
@@ -53,6 +54,8 @@ index e2ef5de83..86e04977d 100644
 +[[nodiscard]] bool HostDppSources();
 +// DPP quad_perm moves through the host's quad operations when it has them (APS5_NO_QUAD_DPP=1: off).
 +[[nodiscard]] bool QuadDppMoves();
++// APS5_HOST_FMA=1: f32 add, subtract and multiply may be contracted by the host (no NoContraction).
++[[nodiscard]] bool HostContraction();
  [[nodiscard]] bool RayTracingMiss();
  
  struct RectListShaders {
@@ -76,7 +79,7 @@ index 1fb812638..6e67dbfc5 100644
      delta = FlushDenormal32(state, delta, flush16, 0x38800000u);
      coordinate = FlushDenormal32(state, coordinate, flush32, 0x00800000u);
 diff --git a/core/shader/recompiler/SpirvBackend/src/SpirvAlu/SpirvAluEmitterMath.cpp b/core/shader/recompiler/SpirvBackend/src/SpirvAlu/SpirvAluEmitterMath.cpp
-index 2e3525069..2c03a6b4c 100644
+index 2e3525069..194d2bd7e 100644
 --- a/core/shader/recompiler/SpirvBackend/src/SpirvAlu/SpirvAluEmitterMath.cpp
 +++ b/core/shader/recompiler/SpirvBackend/src/SpirvAlu/SpirvAluEmitterMath.cpp
 @@ -1,4 +1,5 @@
@@ -85,7 +88,20 @@ index 2e3525069..2c03a6b4c 100644
  #include "SpirvBackend/SpirvMemory/SpirvSubgroup.hpp"
  #include "IntermediateRepresentation/IrValue.hpp"
  #include <spirv/unified1/GLSL.std.450.h>
-@@ -195,7 +196,9 @@ std::uint32_t EmitDppWriteCondition(SpirvValueEmitContext& ctx, const IrValue& i
+@@ -24,6 +25,12 @@ std::uint32_t Exact(SpirvEmitterState& state, std::uint32_t result) {
+     return result;
+ }
+ 
++// The guest's separately rounded f32 add, subtract and multiply; APS5_HOST_FMA=1 lets the host
++// contract a multiply and an add into one fused instruction (a mad on Adreno), rounding once.
++std::uint32_t Contractible(SpirvEmitterState& state, std::uint32_t result) {
++    return HostContraction() ? result : Exact(state, result);
++}
++
+ Pair ExtractPair(SpirvEmitterState& state, std::uint32_t value) {
+     Pair result{state.module.AllocateId(), state.module.AllocateId()};
+     state.module.AddFunction(spv::OpCompositeExtract, TypeU32(state), result.low, value, 0u);
+@@ -195,7 +202,9 @@ std::uint32_t EmitDppWriteCondition(SpirvValueEmitContext& ctx, const IrValue& i
          const auto bounded = state.module.AllocateId();
          state.module.AddFunction(spv::OpLogicalAnd, TypeBool(state), bounded, writable, target.valid);
          writable = bounded;
@@ -96,7 +112,7 @@ index 2e3525069..2c03a6b4c 100644
              const auto sourceActive = EmitBallotLaneActiveBool(state, ctx.Ballot(inst.Argument(2)), target.lane);
              writable = Binary(state, spv::OpLogicalAnd, TypeBool(state), writable, sourceActive);
          }
-@@ -793,14 +796,56 @@ std::uint32_t EmitUndefU1(SpirvEmitterState& state, const IrValue& inst) {
+@@ -793,14 +802,56 @@ std::uint32_t EmitUndefU1(SpirvEmitterState& state, const IrValue& inst) {
      return result;
  }
  
@@ -154,7 +170,26 @@ index 2e3525069..2c03a6b4c 100644
      const auto ballot = ctx.Ballot(inst.Argument(1));
      const auto sourceActive = EmitBallotLaneActiveBool(state, ballot, target.lane);
      const auto canFetch = state.module.AllocateId();
-@@ -1240,6 +1285,9 @@ static std::uint32_t EmitNativeF32ToF16BitsRte(SpirvEmitterState& state, std::ui
+@@ -1166,15 +1217,15 @@ std::uint32_t EmitFPUnordGreaterThanEqual32(SpirvEmitterState& state, std::uint3
+ }
+ 
+ std::uint32_t EmitFPAdd32(SpirvEmitterState& state, std::uint32_t arg0, std::uint32_t arg1) {
+-    return Exact(state, EmitNative<spv::OpFAdd, IrType::F32>(state, arg0, arg1));
++    return Contractible(state, EmitNative<spv::OpFAdd, IrType::F32>(state, arg0, arg1));
+ }
+ 
+ std::uint32_t EmitFPSub32(SpirvEmitterState& state, std::uint32_t arg0, std::uint32_t arg1) {
+-    return Exact(state, EmitNative<spv::OpFSub, IrType::F32>(state, arg0, arg1));
++    return Contractible(state, EmitNative<spv::OpFSub, IrType::F32>(state, arg0, arg1));
+ }
+ 
+ std::uint32_t EmitFPMul32(SpirvEmitterState& state, std::uint32_t arg0, std::uint32_t arg1) {
+-    return Exact(state, EmitNative<spv::OpFMul, IrType::F32>(state, arg0, arg1));
++    return Contractible(state, EmitNative<spv::OpFMul, IrType::F32>(state, arg0, arg1));
+ }
+ 
+ std::uint32_t EmitAddU32(SpirvEmitterState& state, std::uint32_t arg0, std::uint32_t arg1) {
+@@ -1240,6 +1291,9 @@ static std::uint32_t EmitNativeF32ToF16BitsRte(SpirvEmitterState& state, std::ui
      state.module.EmitCapability(spv::CapabilityFloat16);
      state.module.EmitCapability(spv::CapabilityRoundingModeRTE);
      state.module.EmitCapability(spv::CapabilityDenormPreserve);
@@ -224,13 +259,21 @@ index 8c968fb3f..69224030d 100644
      const auto absBits = state.module.AllocateId();
      const auto signBits = state.module.AllocateId();
 diff --git a/core/shader/recompiler/Translation/src/DispatchInstructions.cpp b/core/shader/recompiler/Translation/src/DispatchInstructions.cpp
-index e2c9f9f7b..5da37e818 100644
+index e2c9f9f7b..5e6d76349 100644
 --- a/core/shader/recompiler/Translation/src/DispatchInstructions.cpp
 +++ b/core/shader/recompiler/Translation/src/DispatchInstructions.cpp
-@@ -85,6 +85,35 @@ bool DebugProbeActive() {
+@@ -85,6 +85,43 @@ bool DebugProbeActive() {
      return g_debugProbeActive.load();
  }
  
++bool HostContraction() {
++    static const bool host = [] {
++        const char* text = std::getenv("APS5_HOST_FMA");
++        return text != nullptr && std::strcmp(text, "1") == 0;
++    }();
++    return host;
++}
++
 +bool QuadDppMoves() {
 +    static const bool quad = std::getenv("APS5_NO_QUAD_DPP") == nullptr;
 +    return quad;
