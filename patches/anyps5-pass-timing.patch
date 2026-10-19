@@ -33,7 +33,7 @@ index 5342412e5..4016c404c 100644
          } renderPass;
          PassHazards passHazards;
 diff --git a/core/libs/prx/libSceAgcDriver/Graphics/src/Draw.cpp b/core/libs/prx/libSceAgcDriver/Graphics/src/Draw.cpp
-index 825b51bf2..8e43c6faf 100644
+index 825b51bf2..7be36f7c3 100644
 --- a/core/libs/prx/libSceAgcDriver/Graphics/src/Draw.cpp
 +++ b/core/libs/prx/libSceAgcDriver/Graphics/src/Draw.cpp
 @@ -31,6 +31,7 @@
@@ -44,7 +44,7 @@ index 825b51bf2..8e43c6faf 100644
  #include <unordered_map>
  #include <utility>
  
-@@ -888,6 +889,55 @@ const char* DrawRecipeMissName(DrawRecipeMiss miss) {
+@@ -888,6 +889,62 @@ const char* DrawRecipeMissName(DrawRecipeMiss miss) {
  
  namespace {
  
@@ -90,6 +90,13 @@ index 825b51bf2..8e43c6faf 100644
 +                kinds[static_cast<std::size_t>(binding.kind)] += binding.count;
 +                bda = bda || binding.role == ShaderRecompiler::DescriptorRole::BdaPagetable;
 +            }
++            // The program itself, beside the game (the working directory), for spirv-dis.
++            char path[64];
++            std::snprintf(path, sizeof(path), "pass-%llx.spv", static_cast<unsigned long long>(key));
++            if (auto* file = std::fopen(path, "wb")) {
++                std::fwrite(words.data(), sizeof(std::uint32_t), words.size(), file);
++                std::fclose(file);
++            }
 +            shape = std::to_string(words.size()) + " words " + std::to_string(instructions) + " instructions, sample " + std::to_string(samples) + " fetch " + std::to_string(fetches) + " read " + std::to_string(reads) + " write " + std::to_string(writes) + " loops " + std::to_string(loops) + "; bindings ubo " + std::to_string(kinds[0]) + " ssbo " + std::to_string(kinds[1]) + " texel " + std::to_string(kinds[2] + kinds[3]) + " sampled " + std::to_string(kinds[4]) + " storage-image " + std::to_string(kinds[5]) + " sampler " + std::to_string(kinds[6]) + (bda ? " bda" : "") + ", runtime images " + std::to_string(program->runtimeImageCount);
 +        }
 +        std::fprintf(stderr, "[gputime] pass %llx: render %ux%u, colors%s, depth %s, blend %s, fragment variant %llx: %s\n", static_cast<unsigned long long>(key), state.renderExtent.width, state.renderExtent.height, formats.empty() ? " none" : formats.c_str(), state.depth ? (std::to_string(static_cast<int>(state.depth->format)) + "@" + std::to_string(state.depth->extent.width) + "x" + std::to_string(state.depth->extent.height)).c_str() : "none", !state.blends.empty() && state.blends.front().blendEnable ? "on" : "off", static_cast<unsigned long long>(fragment), shape.c_str());
@@ -100,7 +107,7 @@ index 825b51bf2..8e43c6faf 100644
  // APS5_PROFILE_DRAW: the per-phase timers of one draw (DrawPhase), shared by Draw's parts and
  // DrawWithRecipe.
  struct DrawTimer {
-@@ -1736,6 +1786,11 @@ void recordDraw(const Context& context, const State& state, const Pm4::DrawParam
+@@ -1736,6 +1793,11 @@ void recordDraw(const Context& context, const State& state, const Pm4::DrawParam
      // The draw's [gputime] class range: from its first barrier to the pass's trailing barrier (a
      // continued draw lies inside its pass's range).
      const auto drawTiming = !continued ? recorder->BeginGpuTiming(CommandClass::Draw) : Recorder::NoTiming;
@@ -112,7 +119,7 @@ index 825b51bf2..8e43c6faf 100644
      if (!continued && Recorder::BarrierValidate()) {
          auto reads = resources.InPlaceReads();
          reads.insert(reads.end(), inputs.inPlaceReads.begin(), inputs.inPlaceReads.end());
-@@ -1809,7 +1864,7 @@ void recordDraw(const Context& context, const State& state, const Pm4::DrawParam
+@@ -1809,7 +1871,7 @@ void recordDraw(const Context& context, const State& state, const Pm4::DrawParam
              }
          };
      }
@@ -121,7 +128,7 @@ index 825b51bf2..8e43c6faf 100644
      timer.phase(PhaseRecord);
      keepRecordedDraw(*recorder, record.resources, std::move(record.pipeline), std::move(record.framebuffer), inputs, std::move(record.targets), std::move(scratch), std::move(checkRecords), record.listed, record.completion, outcome);
      timer.phase(PhaseKeep);
-@@ -2222,6 +2277,9 @@ void Draw(const Context& context, const State& state, const Pm4::DrawParameters&
+@@ -2222,6 +2284,9 @@ void Draw(const Context& context, const State& state, const Pm4::DrawParameters&
      APS5_LOG_CHARS_OUT_DEBUG("CommandBatch created");
      // The draw's [gputime] class range: from its first barrier to the download barrier.
      const auto drawTiming = recorded ? recorder->BeginGpuTiming(CommandClass::Draw) : Recorder::NoTiming;
@@ -131,7 +138,7 @@ index 825b51bf2..8e43c6faf 100644
      if (recorded && Recorder::BarrierValidate()) {
          auto reads = resources->InPlaceReads();
          reads.insert(reads.end(), inputs.inPlaceReads.begin(), inputs.inPlaceReads.end());
-@@ -2352,7 +2410,10 @@ void Draw(const Context& context, const State& state, const Pm4::DrawParameters&
+@@ -2352,7 +2417,10 @@ void Draw(const Context& context, const State& state, const Pm4::DrawParameters&
      download.dstAccessMask = VK_ACCESS_HOST_READ_BIT;
      context.Resolved(&DeviceFunctions::cmdPipelineBarrier, "vkCmdPipelineBarrier")(commands, VK_PIPELINE_STAGE_TRANSFER_BIT | inputs.shaderStages, VK_PIPELINE_STAGE_HOST_BIT, 0, 1, &download, 0, nullptr, 0, nullptr);
      countBarrier();
