@@ -1,22 +1,47 @@
+diff --git a/core/libs/prx/libSceAgcDriver/Execution/src/VulkanDevice.cpp b/core/libs/prx/libSceAgcDriver/Execution/src/VulkanDevice.cpp
+index c5f443c00..3aee65cb4 100644
+--- a/core/libs/prx/libSceAgcDriver/Execution/src/VulkanDevice.cpp
++++ b/core/libs/prx/libSceAgcDriver/Execution/src/VulkanDevice.cpp
+@@ -839,6 +839,7 @@ VulkanDevice::VulkanDevice(const PresentationWindow* window) : state(std::make_u
+         if ((state->subgroup.supportedOperations & VK_SUBGROUP_FEATURE_BALLOT_BIT) != 0) state->capabilities.push_back(spv::CapabilityGroupNonUniformBallot);
+         if ((state->subgroup.supportedOperations & VK_SUBGROUP_FEATURE_SHUFFLE_BIT) != 0) state->capabilities.push_back(spv::CapabilityGroupNonUniformShuffle);
+         if ((state->subgroup.supportedOperations & VK_SUBGROUP_FEATURE_ARITHMETIC_BIT) != 0) state->capabilities.push_back(spv::CapabilityGroupNonUniformArithmetic);
++        if ((state->subgroup.supportedOperations & VK_SUBGROUP_FEATURE_QUAD_BIT) != 0) state->capabilities.push_back(spv::CapabilityGroupNonUniformQuad);
+     }
+     APS5_LOG_OUT("Selected GPU name=%s vendor=0x%x device=0x%x subgroup=%u", state->properties.deviceName, state->properties.vendorID, state->properties.deviceID, state->subgroup.subgroupSize);
+     state->InstanceFunction<PFN_vkGetPhysicalDeviceMemoryProperties>("vkGetPhysicalDeviceMemoryProperties")(selected, &state->memoryProperties);
+diff --git a/core/libs/prx/libSceAgcDriver/Graphics/src/ShaderValidation.cpp b/core/libs/prx/libSceAgcDriver/Graphics/src/ShaderValidation.cpp
+index 903746c24..8acb57e0a 100644
+--- a/core/libs/prx/libSceAgcDriver/Graphics/src/ShaderValidation.cpp
++++ b/core/libs/prx/libSceAgcDriver/Graphics/src/ShaderValidation.cpp
+@@ -192,6 +192,7 @@ Module Inspect(const CompiledShader& compiled, const State& state, const VkPhysi
+                     case spv::CapabilityGroupNonUniformBallot: subgroupOperations = VK_SUBGROUP_FEATURE_BASIC_BIT | VK_SUBGROUP_FEATURE_BALLOT_BIT; break;
+                     case spv::CapabilityGroupNonUniformShuffle: subgroupOperations = VK_SUBGROUP_FEATURE_BASIC_BIT | VK_SUBGROUP_FEATURE_SHUFFLE_BIT; break;
+                     case spv::CapabilityGroupNonUniformArithmetic: subgroupOperations = VK_SUBGROUP_FEATURE_BASIC_BIT | VK_SUBGROUP_FEATURE_ARITHMETIC_BIT; break;
++                    case spv::CapabilityGroupNonUniformQuad: subgroupOperations = VK_SUBGROUP_FEATURE_BASIC_BIT | VK_SUBGROUP_FEATURE_QUAD_BIT; break;
+                     default: break;
+                 }
+                 const bool isSubgroupCapability = subgroupOperations != 0;
 diff --git a/core/shader/recompiler/CacheKey.hpp b/core/shader/recompiler/CacheKey.hpp
-index be68766aa..7ef79e809 100644
+index be68766aa..99db11920 100644
 --- a/core/shader/recompiler/CacheKey.hpp
 +++ b/core/shader/recompiler/CacheKey.hpp
-@@ -89,6 +89,9 @@ private:
+@@ -89,6 +89,10 @@ private:
          append(key, request.target);
          append(key, DebugProbeActive());
          append(key, RayTracingStrict());
 +        append(key, HostDenormalFlush());
 +        append(key, HostNanPropagation());
 +        append(key, HostDppSources());
++        append(key, QuadDppMoves());
          append(key, RayTracingMiss());
      }
  
 diff --git a/core/shader/recompiler/Recompiler.hpp b/core/shader/recompiler/Recompiler.hpp
-index e2ef5de83..3c66566dc 100644
+index e2ef5de83..86e04977d 100644
 --- a/core/shader/recompiler/Recompiler.hpp
 +++ b/core/shader/recompiler/Recompiler.hpp
-@@ -594,6 +594,12 @@ struct ResourceCapture;
+@@ -594,6 +594,14 @@ struct ResourceCapture;
  void SetDebugProbeActive(bool active);
  [[nodiscard]] bool DebugProbeActive();
  [[nodiscard]] bool RayTracingStrict();
@@ -26,6 +51,8 @@ index e2ef5de83..3c66566dc 100644
 +[[nodiscard]] bool HostNanPropagation();
 +// APS5_HOST_DPP=1: DPP moves read inactive source lanes instead of keeping the old destination.
 +[[nodiscard]] bool HostDppSources();
++// DPP quad_perm moves through the host's quad operations when it has them (APS5_NO_QUAD_DPP=1: off).
++[[nodiscard]] bool QuadDppMoves();
  [[nodiscard]] bool RayTracingMiss();
  
  struct RectListShaders {
@@ -49,7 +76,7 @@ index 1fb812638..6e67dbfc5 100644
      delta = FlushDenormal32(state, delta, flush16, 0x38800000u);
      coordinate = FlushDenormal32(state, coordinate, flush32, 0x00800000u);
 diff --git a/core/shader/recompiler/SpirvBackend/src/SpirvAlu/SpirvAluEmitterMath.cpp b/core/shader/recompiler/SpirvBackend/src/SpirvAlu/SpirvAluEmitterMath.cpp
-index 2e3525069..ec1eb260b 100644
+index 2e3525069..2c03a6b4c 100644
 --- a/core/shader/recompiler/SpirvBackend/src/SpirvAlu/SpirvAluEmitterMath.cpp
 +++ b/core/shader/recompiler/SpirvBackend/src/SpirvAlu/SpirvAluEmitterMath.cpp
 @@ -1,4 +1,5 @@
@@ -69,7 +96,65 @@ index 2e3525069..ec1eb260b 100644
              const auto sourceActive = EmitBallotLaneActiveBool(state, ctx.Ballot(inst.Argument(2)), target.lane);
              writable = Binary(state, spv::OpLogicalAnd, TypeBool(state), writable, sourceActive);
          }
-@@ -1240,6 +1243,9 @@ static std::uint32_t EmitNativeF32ToF16BitsRte(SpirvEmitterState& state, std::ui
+@@ -793,14 +796,56 @@ std::uint32_t EmitUndefU1(SpirvEmitterState& state, const IrValue& inst) {
+     return result;
+ }
+ 
++// A DPP quad_perm move through the host's quad operations: a quad of host invocations is a quad of
++// guest lanes (one lane per invocation, quads aligned), and Adreno runs these natively, where a
++// shuffle by a per-invocation index becomes a loop over the distinct indices. Zero when not
++// applicable. APS5_NO_QUAD_DPP=1 keeps the shuffle.
++std::uint32_t EmitQuadPermutation(SpirvValueEmitContext& ctx, const IrValue& inst, std::uint32_t control) {
++    auto& state = ctx.state;
++    const bool quad = std::find(state.supportedCapabilities.begin(), state.supportedCapabilities.end(), static_cast<std::uint32_t>(spv::CapabilityGroupNonUniformQuad)) != state.supportedCapabilities.end();
++    if (!QuadDppMoves() || !quad || ctx.otherHalf != nullptr || control > 0xffu) return 0u;
++    state.module.EmitCapability(spv::CapabilityGroupNonUniformQuad);
++    const auto value = ctx.Arg(inst, 0);
++    const auto u32 = TypeU32(state);
++    const auto scope = ConstantU32(state, spv::ScopeSubgroup);
++    const std::array<std::uint32_t, 4> perm{control & 3u, (control >> 2u) & 3u, (control >> 4u) & 3u, (control >> 6u) & 3u};
++    if (control == 0xe4u) return value;
++    const auto swap = [&](std::uint32_t direction) {
++        const auto result = state.module.AllocateId();
++        state.module.AddFunction(spv::OpGroupNonUniformQuadSwap, u32, result, scope, value, ConstantU32(state, direction));
++        return result;
++    };
++    if (control == 0xb1u) return swap(0u);
++    if (control == 0x4eu) return swap(1u);
++    if (control == 0x1bu) return swap(2u);
++    std::array<std::uint32_t, 4> broadcast{};
++    const auto from = [&](std::uint32_t lane) {
++        if (broadcast[lane] == 0u) {
++            broadcast[lane] = state.module.AllocateId();
++            state.module.AddFunction(spv::OpGroupNonUniformQuadBroadcast, u32, broadcast[lane], scope, value, ConstantU32(state, lane));
++        }
++        return broadcast[lane];
++    };
++    if (perm[0] == perm[1] && perm[1] == perm[2] && perm[2] == perm[3]) return from(perm[0]);
++    const auto position = EmitBinaryU32(state, spv::OpBitwiseAnd, EmitSubgroupLocalInvocationId(state), ConstantU32(state, 3u));
++    auto result = from(perm[3]);
++    for (std::uint32_t lane = 3u; lane-- > 0u;) {
++        if (perm[lane] == perm[3]) continue;
++        result = Select(state, u32, EmitCompareU32Constant(state, spv::OpIEqual, position, lane), from(perm[lane]), result);
++    }
++    return result;
++}
++
+ std::uint32_t EmitDppMoveU32(SpirvValueEmitContext& ctx, const IrValue& inst) {
+     auto& state = ctx.state;
+     const auto flags = inst.Flags<DppMoveFlags>();
+     const auto target = EmitDppTargetLane(state, flags.control);
+-    const auto shuffled = ctx.Shuffle(inst, 0, target.lane);
++    const auto permuted = (flags.control & DppMoveFlags::Lanes8) == 0u ? EmitQuadPermutation(ctx, inst, flags.control) : 0u;
++    const auto shuffled = permuted != 0u ? permuted : ctx.Shuffle(inst, 0, target.lane);
+     if (flags.fetchInactive) {
+         return EmitNative<spv::OpSelect, IrType::U32>(state, target.valid, shuffled, ConstantU32(state, 0u));
+     }
++    if (HostDppSources()) return EmitNative<spv::OpSelect, IrType::U32>(state, target.valid, shuffled, ConstantU32(state, 0u));
+     const auto ballot = ctx.Ballot(inst.Argument(1));
+     const auto sourceActive = EmitBallotLaneActiveBool(state, ballot, target.lane);
+     const auto canFetch = state.module.AllocateId();
+@@ -1240,6 +1285,9 @@ static std::uint32_t EmitNativeF32ToF16BitsRte(SpirvEmitterState& state, std::ui
      state.module.EmitCapability(spv::CapabilityFloat16);
      state.module.EmitCapability(spv::CapabilityRoundingModeRTE);
      state.module.EmitCapability(spv::CapabilityDenormPreserve);
@@ -139,13 +224,18 @@ index 8c968fb3f..69224030d 100644
      const auto absBits = state.module.AllocateId();
      const auto signBits = state.module.AllocateId();
 diff --git a/core/shader/recompiler/Translation/src/DispatchInstructions.cpp b/core/shader/recompiler/Translation/src/DispatchInstructions.cpp
-index e2c9f9f7b..92e8a9010 100644
+index e2c9f9f7b..5da37e818 100644
 --- a/core/shader/recompiler/Translation/src/DispatchInstructions.cpp
 +++ b/core/shader/recompiler/Translation/src/DispatchInstructions.cpp
-@@ -85,6 +85,30 @@ bool DebugProbeActive() {
+@@ -85,6 +85,35 @@ bool DebugProbeActive() {
      return g_debugProbeActive.load();
  }
  
++bool QuadDppMoves() {
++    static const bool quad = std::getenv("APS5_NO_QUAD_DPP") == nullptr;
++    return quad;
++}
++
 +bool HostDppSources() {
 +    static const bool host = [] {
 +        const char* text = std::getenv("APS5_HOST_DPP");
