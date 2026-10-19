@@ -45,27 +45,23 @@ index e0577a584..5411a052d 100644
 +    return Aps5NativeCall_nid_no_patch(functions[8], a0, a1, a2, 0, 0, 0, 0, 0);
 +}
 diff --git a/core/libs/prx/libSceMouse/Export.cpp b/core/libs/prx/libSceMouse/Export.cpp
-index 9d820d245..f9f69d3a1 100644
+index 9d820d245..eff442178 100644
 --- a/core/libs/prx/libSceMouse/Export.cpp
 +++ b/core/libs/prx/libSceMouse/Export.cpp
-@@ -18,6 +18,34 @@ int APS5_VABI sceMouseRead(std::int32_t handle, MouseData* data, std::int32_t nu
+@@ -18,6 +18,28 @@ int APS5_VABI sceMouseRead(std::int32_t handle, MouseData* data, std::int32_t nu
      return Mouse::Read(handle, data, num);
  }
  
-+// Absolute-position mode (PS5). The handle comes first as in the rest of the library; the other parameters are
-+// not verified on a console (docs/dev/TechnicalDebt.md). The settings change nothing: the host input layer reports
-+// relative motion only, so no absolute sample is ever produced.
++// Absolute-position mode (PS5). The handle comes first as in the rest of the library; the layout is what
++// PPSA37318 reads, unverified on a console (docs/dev/TechnicalDebt.md). The host's relative motion moves a cursor
++// over the virtual screen set here.
 +int APS5_VABI sceMouseSetAbsoluteVirtualScreenSize(std::int32_t handle, std::int32_t width, std::int32_t height) {
-+    (void)width;
-+    (void)height;
-+    return Mouse::CheckHandle(handle);
++    return Mouse::SetAbsoluteScreen(handle, width, height);
 +}
 +
 +// x and y are zero-extended 16-bit values (a call site passes the centre of the display), as upstream AnyPS5 found.
 +int APS5_VABI sceMouseResetAbsolutePosition(std::int32_t handle, std::uint16_t x, std::uint16_t y) {
-+    (void)x;
-+    (void)y;
-+    return Mouse::CheckHandle(handle);
++    return Mouse::ResetAbsolutePosition(handle, x, y);
 +}
 +
 +int APS5_VABI sceMouseSetAbsoluteHighPrecisionMode(std::int32_t handle, bool enabled) {
@@ -73,33 +69,95 @@ index 9d820d245..f9f69d3a1 100644
 +    return Mouse::CheckHandle(handle);
 +}
 +
-+// Nothing is written to the caller's buffer: no new position, as with a mouse that has not moved.
++// One sample with the current cursor, buttons and the wheel since the last read; returns the sample count.
 +int APS5_VABI sceMouseReadAbsolutePosition(std::int32_t handle, void* data, std::int32_t num) {
-+    (void)data;
-+    (void)num;
-+    return Mouse::CheckHandle(handle);
++    return Mouse::ReadAbsolute(handle, static_cast<MouseAbsoluteData*>(data), num);
 +}
 +
  void MousePublishInput_nid_postfix(const MouseInputEvent& event) {
      Mouse::Publish(event);
  }
 diff --git a/core/libs/prx/libSceMouse/include/MouseState.hpp b/core/libs/prx/libSceMouse/include/MouseState.hpp
-index bf7d57a09..a063323c4 100644
+index bf7d57a09..13f0553d5 100644
 --- a/core/libs/prx/libSceMouse/include/MouseState.hpp
 +++ b/core/libs/prx/libSceMouse/include/MouseState.hpp
-@@ -20,6 +20,7 @@ int Initialize();
+@@ -20,6 +20,10 @@ int Initialize();
  int Open(int userId, std::int32_t type, std::int32_t index, const MouseOpenParam* param);
  int Close(std::int32_t handle);
  int Read(std::int32_t handle, MouseData* data, std::int32_t num);
 +int CheckHandle(std::int32_t handle);
++int SetAbsoluteScreen(std::int32_t handle, std::int32_t width, std::int32_t height);
++int ResetAbsolutePosition(std::int32_t handle, std::uint16_t x, std::uint16_t y);
++int ReadAbsolute(std::int32_t handle, MouseAbsoluteData* data, std::int32_t num);
  void Publish(const MouseInputEvent& event);
  }
  
+diff --git a/core/libs/prx/libSceMouse/include/mouse_structs.h b/core/libs/prx/libSceMouse/include/mouse_structs.h
+index 30c7d3a8f..6b52756e8 100644
+--- a/core/libs/prx/libSceMouse/include/mouse_structs.h
++++ b/core/libs/prx/libSceMouse/include/mouse_structs.h
+@@ -19,7 +19,27 @@ constexpr int MOUSE_MAX_DATA_NUM = 64;
+ constexpr int MOUSE_HANDLE = 1;
+ constexpr std::uint8_t MOUSE_OPEN_PARAM_MERGED = 1;
+ 
++// One sample of the PS5 absolute-position mode, as PPSA37318 reads it: the MouseData header, the
++// position as 16-bit virtual-screen coordinates where MouseData has x_axis, then the wheel and
++// tilt one word earlier than in MouseData. 40 bytes like MouseData (the caller's buffer there).
++struct MouseAbsoluteData {
++    std::uint64_t timestamp;
++    std::uint8_t connected;
++    std::uint8_t pad[3];
++    std::uint32_t buttons;
++    std::uint16_t x;
++    std::uint16_t y;
++    std::int32_t wheel;
++    std::int32_t tilt;
++    std::uint8_t reserved[12];
++};
++
+ static_assert(sizeof(MouseOpenParam) == 8);
++static_assert(sizeof(MouseAbsoluteData) == 40);
++static_assert(offsetof(MouseAbsoluteData, buttons) == 12);
++static_assert(offsetof(MouseAbsoluteData, x) == 16);
++static_assert(offsetof(MouseAbsoluteData, y) == 18);
++static_assert(offsetof(MouseAbsoluteData, wheel) == 20);
+ static_assert(sizeof(MouseData) == 40);
+ static_assert(alignof(MouseData) == 8);
+ static_assert(offsetof(MouseData, timestamp) == 0);
 diff --git a/core/libs/prx/libSceMouse/src/mouse_impl.cpp b/core/libs/prx/libSceMouse/src/mouse_impl.cpp
-index 0a2d6798c..96652d550 100644
+index 0a2d6798c..4af61b71e 100644
 --- a/core/libs/prx/libSceMouse/src/mouse_impl.cpp
 +++ b/core/libs/prx/libSceMouse/src/mouse_impl.cpp
-@@ -83,6 +83,13 @@ int Read(std::int32_t handle, MouseData* data, std::int32_t num) {
+@@ -4,6 +4,7 @@
+ #include <algorithm>
+ #include <array>
+ #include <mutex>
++#include <utility>
+ 
+ namespace {
+ std::mutex mouseMutex;
+@@ -20,6 +21,20 @@ bool connected = false;
+ bool connected = true;
+ #endif
+ std::uint32_t buttons = 0;
++// The absolute-position mode: the relative motion the host reports moves a cursor over the
++// virtual screen the game sets (deltas arrive in 1920-wide units, the touch layer's scale); the
++// wheel accumulates between absolute reads.
++double absoluteX = 959.0;
++double absoluteY = 539.0;
++std::int32_t screenWidth = 1920;
++std::int32_t screenHeight = 1080;
++std::int32_t absoluteWheel = 0;
++std::int32_t absoluteTilt = 0;
++
++void clampAbsolute() {
++    absoluteX = std::clamp(absoluteX, 0.0, static_cast<double>(screenWidth - 1));
++    absoluteY = std::clamp(absoluteY, 0.0, static_cast<double>(screenHeight - 1));
++}
+ 
+ void enqueue(const MouseData& data) {
+     if (count == MOUSE_MAX_DATA_NUM) {
+@@ -83,6 +98,54 @@ int Read(std::int32_t handle, MouseData* data, std::int32_t num) {
      return available;
  }
  
@@ -110,11 +168,64 @@ index 0a2d6798c..96652d550 100644
 +    return MOUSE_OK;
 +}
 +
++int SetAbsoluteScreen(std::int32_t handle, std::int32_t width, std::int32_t height) {
++    std::lock_guard lock(mouseMutex);
++    if (!initialized) return MOUSE_ERROR_NOT_INITIALIZED;
++    if (handle != MOUSE_HANDLE || !opened) return MOUSE_ERROR_INVALID_HANDLE;
++    if (width <= 0 || height <= 0 || width > 0xffff || height > 0xffff) return MOUSE_ERROR_INVALID_ARG;
++    absoluteX = absoluteX * width / screenWidth;
++    absoluteY = absoluteY * height / screenHeight;
++    screenWidth = width;
++    screenHeight = height;
++    clampAbsolute();
++    return MOUSE_OK;
++}
++
++int ResetAbsolutePosition(std::int32_t handle, std::uint16_t x, std::uint16_t y) {
++    std::lock_guard lock(mouseMutex);
++    if (!initialized) return MOUSE_ERROR_NOT_INITIALIZED;
++    if (handle != MOUSE_HANDLE || !opened) return MOUSE_ERROR_INVALID_HANDLE;
++    absoluteX = x;
++    absoluteY = y;
++    clampAbsolute();
++    return MOUSE_OK;
++}
++
++int ReadAbsolute(std::int32_t handle, MouseAbsoluteData* data, std::int32_t num) {
++    std::lock_guard lock(mouseMutex);
++    if (!initialized) return MOUSE_ERROR_NOT_INITIALIZED;
++    if (handle != MOUSE_HANDLE || !opened) return MOUSE_ERROR_INVALID_HANDLE;
++    if (data == nullptr || num <= 0 || num > MOUSE_MAX_DATA_NUM) return MOUSE_ERROR_INVALID_ARG;
++    // The current state as one sample (the cursor has no history to replay).
++    MouseAbsoluteData sample{};
++    sample.timestamp = sceKernelGetProcessTime();
++    sample.connected = connected ? 1u : 0u;
++    sample.buttons = connected ? buttons : 0u;
++    sample.x = static_cast<std::uint16_t>(absoluteX);
++    sample.y = static_cast<std::uint16_t>(absoluteY);
++    sample.wheel = std::exchange(absoluteWheel, 0);
++    sample.tilt = std::exchange(absoluteTilt, 0);
++    data[0] = sample;
++    return 1;
++}
++
  void Publish(const MouseInputEvent& event) {
      std::lock_guard lock(mouseMutex);
      if (event.connectionChange) {
+@@ -93,6 +156,11 @@ void Publish(const MouseInputEvent& event) {
+         return;
+     }
+     if (!opened) return;
++    absoluteX += event.x * static_cast<double>(screenWidth) / 1920.0;
++    absoluteY += event.y * static_cast<double>(screenHeight) / 1080.0;
++    clampAbsolute();
++    absoluteWheel += event.wheel;
++    absoluteTilt += event.tilt;
+     if (event.resetButtons) buttons = 0;
+     if (event.button != 0) {
+         if (event.pressed) buttons |= event.button;
 diff --git a/core/libs/prx/libSceMouse/tests/Mouse.cpp b/core/libs/prx/libSceMouse/tests/Mouse.cpp
-index e01f3f9b4..fd56a5522 100644
+index e01f3f9b4..1fef20389 100644
 --- a/core/libs/prx/libSceMouse/tests/Mouse.cpp
 +++ b/core/libs/prx/libSceMouse/tests/Mouse.cpp
 @@ -11,6 +11,10 @@ int APS5_VABI sceMouseInit();
@@ -146,22 +257,32 @@ index e01f3f9b4..fd56a5522 100644
 +    Require(sceMouseSetAbsoluteHighPrecisionMode(MOUSE_HANDLE, true) == MOUSE_OK);
 +    Require(sceMouseResetAbsolutePosition(MOUSE_HANDLE, 959, 539) == MOUSE_OK);
 +    Require(sceMouseResetAbsolutePosition(42, 959, 539) == MOUSE_ERROR_INVALID_HANDLE);
-+    std::uint8_t absolute[64];
-+    for (auto& byte : absolute) byte = 0xa5;
-+    Require(sceMouseReadAbsolutePosition(MOUSE_HANDLE, absolute, 1) == 0);
-+    for (auto byte : absolute) Require(byte == 0xa5);
++    MouseAbsoluteData absolute{};
++    Require(sceMouseReadAbsolutePosition(MOUSE_HANDLE, &absolute, 1) == 1);
++    Require(absolute.x == 959 && absolute.y == 539 && absolute.wheel == 0);
++    Require(sceMouseReadAbsolutePosition(MOUSE_HANDLE, nullptr, 1) == MOUSE_ERROR_INVALID_ARG);
      Require(sceMouseRead(42, data, 1) == MOUSE_ERROR_INVALID_HANDLE);
      Require(sceMouseRead(MOUSE_HANDLE, nullptr, 1) == MOUSE_ERROR_INVALID_ARG);
      Require(sceMouseRead(MOUSE_HANDLE, data, 65) == MOUSE_ERROR_INVALID_ARG);
+@@ -60,6 +74,9 @@ int main() {
+     Require(data[1].buttons == 2);
+     Require(data[2].buttons == 2 && data[2].wheel == 3 && data[2].tilt == -2);
+     Require(data[0].timestamp <= data[2].timestamp);
++    Require(sceMouseReadAbsolutePosition(MOUSE_HANDLE, &absolute, 1) == 1);
++    Require(absolute.connected && absolute.x == 968 && absolute.y == 535 && absolute.buttons == 2 && absolute.wheel == 3 && absolute.tilt == -2);
++    Require(sceMouseReadAbsolutePosition(MOUSE_HANDLE, &absolute, 1) == 1 && absolute.wheel == 0);
+     event = {};
+     event.type = SDL_MOUSEBUTTONDOWN;
+     event.button.windowID = 7;
 diff --git a/docs/dev/TechnicalDebt.md b/docs/dev/TechnicalDebt.md
-index 542edd980..b453f3dfb 100644
+index 542edd980..f31a03fb5 100644
 --- a/docs/dev/TechnicalDebt.md
 +++ b/docs/dev/TechnicalDebt.md
 @@ -39,6 +39,7 @@ Throughout the project, every function at every stage either **does exactly what
  - [libSceHttp2](../../core/libs/prx/libSceHttp2/Export.cpp) - no request reaches the network, so `sceHttp2SetMinSslVersion` has no TLS connection to restrict and returns success for any `id`, like `sceHttp2SslEnableOption` (prosper returns the invalid-id error for an unknown one)
  - [libSceNpTrophy2](../../core/libs/prx/libSceNpTrophy2/src/GameInfo.cpp): `sceNpTrophy2RegisterUnlockCallback` accepts a callback that is never called, as no trophy is ever unlocked, and `sceNpTrophy2UnregisterUnlockCallback` only returns success.
  - [sceAvPlayerSetTrickSpeed](../../core/libs/prx/libSceAvPlayer/src/Source.cpp) (libSceAvPlayer) with a negative speed runs the clock backwards but delivers no frames; when a forward speed is set again, playback resumes from the rewound time.
-+- [sceMouseSetAbsoluteVirtualScreenSize, sceMouseResetAbsolutePosition, sceMouseSetAbsoluteHighPrecisionMode, sceMouseReadAbsolutePosition](../../core/libs/prx/libSceMouse/Export.cpp) (libSceMouse) - the PS5 absolute-position mode; shadPS4 has no counterpart. PPSA37318 calls `sceMouseSetAbsoluteVirtualScreenSize` during start-up. The handle is taken as the first parameter like the rest of the library and checked like `sceMouseRead` (not initialized, wrong or closed handle); `sceMouseResetAbsolutePosition` takes `(handle, x, y)` with 16-bit coordinates as upstream AnyPS5 measured at a call site; the other parameters (`width, height`, `enabled`, `data, num`) are guesses; all of them are ignored. The host input layer reports relative motion only, so no absolute sample exists: `sceMouseReadAbsolutePosition` returns 0 and writes nothing, as a mouse that has not moved. The real signatures, the sample layout and the errors are unverified on a console
++- [sceMouseSetAbsoluteVirtualScreenSize, sceMouseResetAbsolutePosition, sceMouseSetAbsoluteHighPrecisionMode, sceMouseReadAbsolutePosition](../../core/libs/prx/libSceMouse/Export.cpp) (libSceMouse) - the PS5 absolute-position mode; shadPS4 has no counterpart. The handle is taken as the first parameter like the rest of the library and checked like `sceMouseRead`; `sceMouseResetAbsolutePosition` takes `(handle, x, y)` with 16-bit coordinates as upstream AnyPS5 measured at a call site. The host input layer reports relative motion, which moves a cursor over the virtual screen (`width, height`; deltas in 1920x1080 units); `sceMouseReadAbsolutePosition(handle, data, num)` writes the current state as one 40-byte sample and returns 1: the MouseData header (timestamp, connected, buttons), 16-bit `x, y` at offset 16, then the wheel and tilt since the last read, which is the layout PPSA37318 reads (it sets a 1920x1080 screen and uses offsets 8, 12, 16, 18 and 20). High-precision mode is accepted and ignored. The real signatures, the remaining fields and the errors are unverified on a console
  - [sceRudpActivate](../../core/libs/prx/libSceRudp/Export.cpp) (libSceRudp) - there is no reliable-UDP stack on the host to activate, so it returns success without doing anything, as [shadPS4](https://github.com/shadps4-emu/shadPS4/blob/main/src/core/libraries/rudp/rudp.cpp) does for its own `sceRudpActivate`. PPSA01325 calls it with no arguments during start-up; what the console activates, and whether it reports an error before `sceRudpInit`, is unverified
  - [ulobjmgr](../../core/libs/prx/ulobjmgr/Export.cpp) registers no object: `_sceUlobjmgrRegisterObject` always hands out id 0 and `_sceUlobjmgrUnregisterObject` releases nothing, as shadPS4 does
  - [libSceHttp](../../core/libs/prx/libSceHttp/Export.cpp) - no request reaches the network, so `sceHttpSetResponseHeaderMaxSize` has no response header to limit, `sceHttpSetRecvBlockSize` (`(int id, u32 blockSize)` as in [shadPS4](https://github.com/shadps4-emu/shadPS4/blob/main/src/core/libraries/network/http.h)) no response body to read in blocks and `sceHttpRedirectCacheFlush` no redirect to forget; `sceHttpsUnloadCert` returns success like `sceHttpsLoadCert`, which keeps no certificate; `sceHttpSetRedirectCallback` and `sceHttpSetCookieRecvCallback` accept callbacks that are never called, `sceHttpsSetSslVersion` has no TLS connection to configure and `sceHttpsGetSslError` reports error 0 with detail 0; `sceHttpSetAuthInfoCallback` accepts a callback that is never called, as no server asks for authentication

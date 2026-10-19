@@ -637,6 +637,13 @@ int SDL_main(int argc, char **argv) {
     // Отрисовку или диспетчеризацию, шейдер которой AnyPS5 не поддерживает, пропускать (отчёт в box64.log), а не
     // закрывать игру (патч anyps5-skip-failed-shaders). APS5_SKIP_FAILED_SHADERS=0 — как раньше.
     setdefault("APS5_SKIP_FAILED_SHADERS", "1");
+    // Float-семантика Adreno в пересобранных шейдерах вместо побитовой эмуляции AMD (патч anyps5-host-ftz):
+    // денормали сбрасывает сам GPU, NaN — его собственный, умножение со сложением склеиваются в mad, DPP
+    // читает соседнюю линию без ballot. В Mewgenics это вдвое и больше короче шейдеры. =0 — точная эмуляция.
+    setdefault("APS5_HOST_FTZ", "1");
+    setdefault("APS5_HOST_NAN", "1");
+    setdefault("APS5_HOST_FMA", "1");
+    setdefault("APS5_HOST_DPP", "1");
     // Касания — только сенсорное управление (геймпад игрока 1): SDL не делает из них мышь, иначе
     // игра видела мышь вторым устройством ввода (второй игрок) при касании мимо кнопок.
     setdefault("SDL_TOUCH_MOUSE_EVENTS", "0");

@@ -85,12 +85,12 @@
 | `patches/mesa-26.3-android.patch` | Turnip: импорт host-памяти через KGSL, линейные буферы swapchain с gralloc |
 | `patches/sdl2-android-udev-once.patch` | SDL2 (подмодуль AnyPS5) |
 | `patches/box64-android-hwcap.patch` | box64: расширения процессора (атомарные LSE, FLAGM, FRINT, CRC32…) читаются через `getauxval` bionic; без него динарек в приложении видел только ASIMD |
-| `patches/anyps5-mouse-absolute.patch` | AnyPS5: функции мыши PS5 для абсолютных координат (их вызывает при старте Mewgenics, PPSA37318) |
+| `patches/anyps5-mouse-absolute.patch` | AnyPS5: режим абсолютных координат мыши PS5: движение двигает курсор по виртуальному экрану игры, `sceMouseReadAbsolutePosition` отдаёт его вместе с кнопками и колесом (Mewgenics, PPSA37318, читает мышь только так) |
 | `patches/anyps5-volume-2darray.patch` | AnyPS5: коммит 945b970 из основного репозитория (загрузки и записи 2D-массивов в 3D-текстуры), нужен Mewgenics; только код |
 | `patches/anyps5-line-on-plane.patch` | AnyPS5: одномерные загрузки и записи в 2D-текстуры и 2D-массивы (недостающие строка и слой — нули); так Mewgenics читает «линию» 9100×1 в десятках отрисовок за кадр |
 | `patches/anyps5-skip-failed-shaders.patch` | AnyPS5: `APS5_SKIP_FAILED_SHADERS` (в APK включён) пропускает отрисовку с неподдерживаемым шейдером вместо закрытия игры, как в основном репозитории |
 | `patches/anyps5-pass-timing.patch` | AnyPS5: при `APS5_PROFILE_GPU=1` отчёт `[gputime]` дополнительно делит время отрисовки по проходам (размер, цели, фрагментный шейдер) и один раз описывает каждый проход |
-| `patches/anyps5-host-ftz.patch` | Шейдеры AnyPS5 на Adreno: DPP quad_perm через аппаратные quad-операции вместо shuffle с индексом на каждую линию (в Turnip это цикл; `APS5_NO_QUAD_DPP=1` — как раньше); по желанию float-семантика хоста: `APS5_HOST_FTZ=1` — сброс денормалей f32 самим GPU, `APS5_HOST_NAN=1` — NaN хоста, NMin/NMax и без SignedZeroInfNanPreserve для f32, `APS5_HOST_DPP=1` — чтение источников DPP без ballot, `APS5_HOST_FMA=1` — склейка умножения и сложения в одну инструкцию |
+| `patches/anyps5-host-ftz.patch` | Шейдеры AnyPS5 на Adreno: DPP quad_perm через аппаратные quad-операции вместо shuffle с индексом на каждую линию (в Turnip это цикл; `APS5_NO_QUAD_DPP=1` — как раньше); float-семантика хоста (в APK включена, `=0` отключает каждую): `APS5_HOST_FTZ=1` — сброс денормалей f32 самим GPU, `APS5_HOST_NAN=1` — NaN хоста, NMin/NMax и без SignedZeroInfNanPreserve для f32, `APS5_HOST_DPP=1` — чтение источников DPP без ballot, `APS5_HOST_FMA=1` — склейка умножения и сложения в одну инструкцию |
 | `cmake/` | toolchain-файлы CMake (bionic arm64 и x86-64 glibc), cross-файл Meson для Mesa, `box64-emu.sh` |
 | `compat/` | заголовки совместимости (ndk-shim, box64-android-compat) |
 

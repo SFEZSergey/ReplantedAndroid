@@ -306,6 +306,31 @@ index e2c9f9f7b..5e6d76349 100644
  bool RayTracingStrict() {
      static const bool strict = [] {
          const char* text = std::getenv("APS5_RAYTRACING");
+diff --git a/core/shader/recompiler/Translation/src/FloatInstructions.cpp b/core/shader/recompiler/Translation/src/FloatInstructions.cpp
+index 3262eadda..b8a1ded4d 100644
+--- a/core/shader/recompiler/Translation/src/FloatInstructions.cpp
++++ b/core/shader/recompiler/Translation/src/FloatInstructions.cpp
+@@ -1,4 +1,5 @@
+ #include "Translation/FloatInstructions.hpp"
++#include "Recompiler.hpp"
+ #include "Translation/TranslationContext.hpp"
+ #include <array>
+ #include <cstdint>
+@@ -530,6 +531,14 @@ bool TranslationContext::vDivFixupF32(const RdnaInstruction& inst) {
+ }
+ 
+ bool TranslationContext::floatUnary(const RdnaInstruction& inst, IrOpcode opcode) {
++    // APS5_HOST_FTZ=1 with APS5_HOST_NAN=1: the host's reciprocal, square roots, log2 and exp2 give
++    // the guest's results for zeros, denormals (flushed), infinities and NaNs on their own.
++    const bool hostSpecials = opcode == IrOpcode::FPRecip32 || opcode == IrOpcode::FPRecipIFlag32 || opcode == IrOpcode::FPRecipSqrt32 || opcode == IrOpcode::FPSqrt || opcode == IrOpcode::FPLog2 || opcode == IrOpcode::FPExp2;
++    if (hostSpecials && HostDenormalFlush() && HostNanPropagation()) {
++        IrValue& argument = ir.BitCastF32(readU32(sourceAt(inst, 0u)).Value());
++        writeOperand(inst.destination, &ir.Emit(opcode, IrType::F32, {&argument}));
++        return true;
++    }
+     const IrU32 bits = flushF32Denormal(readU32(sourceAt(inst, 0u)));
+     const IrF32 argument(ir.BitCastF32(bits.Value()));
+     const auto [result, invalid] = unaryFloatSpecials(opcode, argument, IrF32(ir.Emit(opcode, IrType::F32, {&argument.Value()})));
 diff --git a/core/shader/recompiler/Translation/src/TranslationContext/OperandAccess.cpp b/core/shader/recompiler/Translation/src/TranslationContext/OperandAccess.cpp
 index 27b6e20f8..60a57a801 100644
 --- a/core/shader/recompiler/Translation/src/TranslationContext/OperandAccess.cpp
