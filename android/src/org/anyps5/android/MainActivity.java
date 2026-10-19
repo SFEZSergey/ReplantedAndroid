@@ -963,7 +963,7 @@ public final class MainActivity extends Activity {
                     extractSelfModules(game);
                     statusOnUi(t("Запускаю AnyPS5 relinker…", "Running the AnyPS5 relinker…"));
                     runRelinker(game);
-                    Files.write(new File(game, ".relink-layout").toPath(), RELINK_LAYOUT.getBytes());
+                    Files.write(new File(game, ".relink-layout").toPath(), relinkLayout(game).getBytes());
                 }
                 if (!executable.isFile()) throw new Exception("Relinker завершился, но app.elf не создан");
                 // Repair links even when an earlier import already created app.elf.
@@ -1076,6 +1076,7 @@ public final class MainActivity extends Activity {
     // relinker заменяет эквивалентным кодом. Если замена невозможна (relinker тогда завершается с ошибкой),
     // перелинковка повторяется без неё, как раньше.
     private void relink(File game, File result, String log) throws Exception {
+        if (!relinkToIntel(game)) { relink(game, result, log, false); return; }
         try { relink(game, result, log, true); }
         catch (Exception converted) {
             try { Files.copy(new File(game, log).toPath(), new File(game, log + ".to-intel").toPath(), java.nio.file.StandardCopyOption.REPLACE_EXISTING); } catch (Exception ignored) {}
@@ -1179,8 +1180,19 @@ public final class MainActivity extends Activity {
     // Версия раскладки перелинковки: app.elf, собранный раньше, пересобирается (2 — модули, которые игра грузит сама,
     // не зависимости app.elf; 3 — замена инструкций AMD, --to-intel).
     private static final String RELINK_LAYOUT = "3";
+    // APS5_RELINK_TO_INTEL=0 в env.txt игры: перелинковка без замены инструкций AMD (если замена мешает игре).
+    // Значение входит в метку раскладки, так что его смена перелинковывает игру при следующем запуске.
+    private static boolean relinkToIntel(File game) {
+        try {
+            for (String line : Files.readAllLines(new File(game, "env.txt").toPath())) {
+                if (line.trim().equals("APS5_RELINK_TO_INTEL=0")) return false;
+            }
+        } catch (Exception ignored) {}
+        return true;
+    }
+    private static String relinkLayout(File game) { return relinkToIntel(game) ? RELINK_LAYOUT : RELINK_LAYOUT + "-no-intel"; }
     private static boolean staleRelinkLayout(File game) {
-        try { return !RELINK_LAYOUT.equals(new String(Files.readAllBytes(new File(game, ".relink-layout").toPath())).trim()); } catch (Exception e) { return true; }
+        try { return !relinkLayout(game).equals(new String(Files.readAllBytes(new File(game, ".relink-layout").toPath())).trim()); } catch (Exception e) { return true; }
     }
     private static boolean hasUnlinkedGameModules(File game) {
         for (String folder : new String[] {"Modules", "Plugins"}) {
