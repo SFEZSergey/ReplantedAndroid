@@ -93,20 +93,31 @@ cd "$A" && cmake --build build-bionic --target libSceMouse libSceAgcDriver -j$(n
 
 # 3. Собираем и устанавливаем APK с Root
 echo "=== Сборка APK пакета ==="
-if [ -d "$REPO_DIR/android" ]; then
-  cd "$REPO_DIR/android" && bash build.sh
-elif [ -d "$HOME/ps5-android/apk" ]; then
-  cd "$HOME/ps5-android/apk" && bash build.sh
+
+# Настройка путей SDK и компонентов Termux под структуру ~/ps5-android
+export ANDROID_JAR="\$(find \"\$HOME/ps5-android/android-sdk\" \"\$REPO_DIR/../android-sdk\" -name \"android.jar\" 2>/dev/null | sort -V | tail -n 1)"
+[ -n "\$ANDROID_JAR" ] || export ANDROID_JAR="\$HOME/ps5-android/android-sdk/platforms/android-35/android.jar"
+export ANYPS5_DIR="\$HOME/ps5-android/src/AnyPS5"
+export BOX64_DIR="\$HOME/ps5-android/src/box64"
+export MESA_BUILD_DIR="\$HOME/ps5-android/src/mesa-26.3/build-android"
+export RELINKER_BIN="\$HOME/ps5-android/bin/relinker"
+export X64LIB_DIR="\$HOME/ps5-android/x64lib"
+export ADRENOTOOLS_DIR="\$HOME/ps5-android/src/libadrenotools-master"
+
+if [ -d "\$REPO_DIR/android" ]; then
+  cd "\$REPO_DIR/android" && bash build.sh
+elif [ -d "\$HOME/ps5-android/apk" ]; then
+  cd "\$HOME/ps5-android/apk" && bash build.sh
 fi
 
 echo "=== Установка APK в систему ==="
 APK_FILE=""
-for candidate in "$REPO_DIR/android/out/PvZ-Replanted.apk" "$HOME/ps5-android/apk/out/PvZ-Replanted.apk" "$REPO_DIR/android/out/AnyPS5.apk"; do
-  if [ -f "$candidate" ]; then APK_FILE="$candidate"; break; fi
+for candidate in "\$REPO_DIR/android/out/PvZ-Replanted.apk" "\$HOME/ps5-android/apk/out/PvZ-Replanted.apk" "\$REPO_DIR/android/out/AnyPS5.apk"; do
+  if [ -f "\$candidate" ]; then APK_FILE="\$candidate"; break; fi
 done
 
-if [ -n "$APK_FILE" ]; then
-  su -c "cp '$APK_FILE' /data/local/tmp/pvz.apk && chmod 644 /data/local/tmp/pvz.apk && pm install -r /data/local/tmp/pvz.apk"
+if [ -n "\$APK_FILE" ]; then
+  su -c "cp '\$APK_FILE' /data/local/tmp/pvz.apk && chmod 644 /data/local/tmp/pvz.apk && pm install -r /data/local/tmp/pvz.apk"
   echo -e "\\033[32m[OK]\\033[0m APK успешно установлен!"
 else
   echo -e "\\033[31m[WARN]\\033[0m APK файл не найден, проверьте лог сборки"
@@ -180,12 +191,24 @@ A=~/ps5-android/src/AnyPS5
 cd $A && cmake --build build-bionic --target libSceMouse libSceAgcDriver -j$(nproc) 2>&1 | tail -10`;
 
   const step3Text = `# Шаг 3: Сборка и установка APK под Root
-cd ~/ps5-android/pvz-replanted-android/android || cd ~/ps5-android/apk
-bash build.sh
+export ANDROID_JAR="$(find "$HOME/ps5-android/android-sdk" -name "android.jar" 2>/dev/null | sort -V | tail -n 1)"
+[ -n "$ANDROID_JAR" ] || export ANDROID_JAR="$HOME/ps5-android/android-sdk/platforms/android-35/android.jar"
+export ANYPS5_DIR="$HOME/ps5-android/src/AnyPS5"
+export BOX64_DIR="$HOME/ps5-android/src/box64"
+export MESA_BUILD_DIR="$HOME/ps5-android/src/mesa-26.3/build-android"
+export RELINKER_BIN="$HOME/ps5-android/bin/relinker"
+export X64LIB_DIR="$HOME/ps5-android/x64lib"
+export ADRENOTOOLS_DIR="$HOME/ps5-android/src/libadrenotools-master"
+
+if [ -d ~/ps5-android/apk ]; then
+  cd ~/ps5-android/apk && bash build.sh
+elif [ -d ~/ps5-android/pvz-replanted-android/android ]; then
+  cd ~/ps5-android/pvz-replanted-android/android && bash build.sh
+fi
 
 su -c '
-APK_PATH="/data/data/com.termux/files/home/ps5-android/pvz-replanted-android/android/out/PvZ-Replanted.apk"
-[ -f "$APK_PATH" ] || APK_PATH="/data/data/com.termux/files/home/ps5-android/apk/out/PvZ-Replanted.apk"
+APK_PATH="/data/data/com.termux/files/home/ps5-android/apk/out/PvZ-Replanted.apk"
+[ -f "$APK_PATH" ] || APK_PATH="/data/data/com.termux/files/home/ps5-android/pvz-replanted-android/android/out/PvZ-Replanted.apk"
 cp "$APK_PATH" /data/local/tmp/pvz.apk && chmod 644 /data/local/tmp/pvz.apk && pm install -r /data/local/tmp/pvz.apk
 '`;
 

@@ -6,13 +6,86 @@
 set -euo pipefail
 # Пути (переопределяются переменными окружения, см. README):
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"; APK="$ROOT/android"
-SDK="${ANDROID_JAR:-$ROOT/deps/android-sdk/platforms/android-35/android.jar}"
-ANYPS5="${ANYPS5_DIR:-$ROOT/external/AnyPS5}"; BOX64="${BOX64_DIR:-$ROOT/external/box64}"
-MESA_BUILD="${MESA_BUILD_DIR:-$ROOT/deps/mesa-26.3/build-android}"
-RELINKER="${RELINKER_BIN:-$ROOT/deps/bin/relinker}"; X64LIB="${X64LIB_DIR:-$ROOT/deps/x64lib}"
+PARENT="$(cd "$ROOT/.." && pwd)"
+
+# Автоопределение SDK (android.jar)
+SDK="${ANDROID_JAR:-}"
+if [ -z "$SDK" ] || [ ! -f "$SDK" ]; then
+  for candidate in \
+    "$PARENT/android-sdk/platforms/android-35/android.jar" \
+    "$PARENT/android-sdk/platforms/android-34/android.jar" \
+    "$PARENT/android-sdk/platforms/android-33/android.jar" \
+    "$HOME/ps5-android/android-sdk/platforms/android-35/android.jar" \
+    "$HOME/ps5-android/android-sdk/platforms/android-34/android.jar" \
+    "$HOME/ps5-android/android-sdk/platforms/android-33/android.jar" \
+    "$ROOT/deps/android-sdk/platforms/android-35/android.jar" \
+    "$ROOT/deps/android-sdk/platforms/android-34/android.jar"; do
+    if [ -f "$candidate" ]; then SDK="$candidate"; break; fi
+  done
+  if [ -z "$SDK" ] || [ ! -f "$SDK" ]; then
+    SDK="$(find "$PARENT/android-sdk" "$HOME/ps5-android/android-sdk" "$ROOT/deps/android-sdk" -name "android.jar" 2>/dev/null | sort -V | tail -n 1 || true)"
+  fi
+fi
+if [ -z "$SDK" ] || [ ! -f "$SDK" ]; then
+  SDK="$ROOT/deps/android-sdk/platforms/android-35/android.jar"
+fi
+
+# Автоопределение AnyPS5 и box64
+ANYPS5="${ANYPS5_DIR:-}"
+if [ -z "$ANYPS5" ] || [ ! -d "$ANYPS5" ]; then
+  for candidate in "$PARENT/src/AnyPS5" "$HOME/ps5-android/src/AnyPS5" "$PARENT/AnyPS5" "$ROOT/external/AnyPS5"; do
+    if [ -d "$candidate" ]; then ANYPS5="$candidate"; break; fi
+  done
+  [ -n "$ANYPS5" ] || ANYPS5="$ROOT/external/AnyPS5"
+fi
+
+BOX64="${BOX64_DIR:-}"
+if [ -z "$BOX64" ] || [ ! -d "$BOX64" ]; then
+  for candidate in "$PARENT/src/box64" "$HOME/ps5-android/src/box64" "$PARENT/box64" "$ROOT/external/box64"; do
+    if [ -d "$candidate" ]; then BOX64="$candidate"; break; fi
+  done
+  [ -n "$BOX64" ] || BOX64="$ROOT/external/box64"
+fi
+
+# Автоопределение Mesa 26.3
+MESA_BUILD="${MESA_BUILD_DIR:-}"
+if [ -z "$MESA_BUILD" ] || [ ! -d "$MESA_BUILD" ]; then
+  for candidate in "$PARENT/src/mesa-26.3/build-android" "$HOME/ps5-android/src/mesa-26.3/build-android" "$ROOT/deps/mesa-26.3/build-android"; do
+    if [ -d "$candidate" ]; then MESA_BUILD="$candidate"; break; fi
+  done
+  [ -n "$MESA_BUILD" ] || MESA_BUILD="$ROOT/deps/mesa-26.3/build-android"
+fi
+
+# Автоопределение Relinker и x64lib
+RELINKER="${RELINKER_BIN:-}"
+if [ -z "$RELINKER" ] || [ ! -f "$RELINKER" ]; then
+  for candidate in "$PARENT/bin/relinker" "$HOME/ps5-android/bin/relinker" "$ROOT/deps/bin/relinker"; do
+    if [ -f "$candidate" ]; then RELINKER="$candidate"; break; fi
+  done
+  [ -n "$RELINKER" ] || RELINKER="$ROOT/deps/bin/relinker"
+fi
+
+X64LIB="${X64LIB_DIR:-}"
+if [ -z "$X64LIB" ] || [ ! -d "$X64LIB" ]; then
+  for candidate in "$PARENT/x64lib" "$HOME/ps5-android/x64lib" "$ROOT/deps/x64lib"; do
+    if [ -d "$candidate" ]; then X64LIB="$candidate"; break; fi
+  done
+  [ -n "$X64LIB" ] || X64LIB="$ROOT/deps/x64lib"
+fi
+
 NDK_SHIM="${NDK_SHIM_DIR:-$ROOT/compat/ndk-shim}"
 SDL="$ANYPS5/3rdparty/SDL2/android-project/app/src/main/java"; OUT="$APK/out"; GEN="$OUT/gen"; CLASSES="$OUT/classes"
-BIONIC="${ANYPS5_BIONIC_BUILD:-$ANYPS5/build-bionic}"; ADRENO="${ADRENOTOOLS_DIR:-$ROOT/deps/libadrenotools}"
+BIONIC="${ANYPS5_BIONIC_BUILD:-$ANYPS5/build-bionic}"
+
+# Автоопределение libadrenotools
+ADRENO="${ADRENOTOOLS_DIR:-}"
+if [ -z "$ADRENO" ] || [ ! -d "$ADRENO" ]; then
+  for candidate in "$PARENT/src/libadrenotools-master" "$HOME/ps5-android/src/libadrenotools-master" "$PARENT/src/libadrenotools" "$ROOT/deps/libadrenotools"; do
+    if [ -d "$candidate" ]; then ADRENO="$candidate"; break; fi
+  done
+  [ -n "$ADRENO" ] || ADRENO="$ROOT/deps/libadrenotools"
+fi
+
 X86STUBS="${ANYPS5_X64_BUILD:-$ANYPS5/build-x64s}/core/libs/libs"; X86LIBS="${X86LIBS:-$X86STUBS}"
 LIB="$OUT/lib/arm64-v8a"
 rm -rf "$OUT"; mkdir -p "$GEN" "$CLASSES" "$LIB" "$OUT/assets/runtime/prx" "$OUT/assets/runtime/x64lib"
