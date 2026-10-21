@@ -1,10 +1,33 @@
-# Сборка и подпись
+# Сборка и подпись Android
 android/out/
 android/debug.keystore
 *.apk
 *.keystore
-# Внешние зависимости, которые ставятся отдельно (см. README)
-deps/
-# Логи и профили
+
+# Зависимости и сборка веб-хаба
+node_modules/
+dist/
+bun.lock
+
+# Внутренние артефакты среды
+.aistudio/
+
+# Логи, профили и архивы (НЕ коммитить в git)
 *.log
 *.txt.profile
+*.zip
+pvz-logs*
+box64.log
+logcat.txt
+env.txt
+
+# Дампы шейдеров и архивы драйверов Mesa Turnip
+all_shaders*.txt
+*shaders*.txt
+mesa-turnip*
+mew-spv*
+public/assets/
+
+# Внешние зависимости, которые ставятся отдельно (см. README)
+deps/
+external/

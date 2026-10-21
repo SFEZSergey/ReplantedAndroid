@@ -275,7 +275,10 @@ index e2c9f9f7b..5e6d76349 100644
 +}
 +
 +bool QuadDppMoves() {
-+    static const bool quad = std::getenv("APS5_NO_QUAD_DPP") == nullptr;
++    static const bool quad = [] {
++        const char* text = std::getenv("APS5_NO_QUAD_DPP");
++        return text == nullptr || std::strcmp(text, "0") == 0;
++    }();
 +    return quad;
 +}
 +

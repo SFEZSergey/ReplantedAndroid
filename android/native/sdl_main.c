@@ -647,10 +647,12 @@ int SDL_main(int argc, char **argv) {
     // Касания — только сенсорное управление (геймпад игрока 1): SDL не делает из них мышь, иначе
     // игра видела мышь вторым устройством ввода (второй игрок) при касании мимо кнопок.
     setdefault("SDL_TOUCH_MOUSE_EVENTS", "0");
-    // Turnip: выбор режима прохода (тайлы GMEM или прямо в память) по реальному времени GPU обоих
-    // режимов, а не по оценке пропускной способности — та выбирает GMEM для проходов из множества
-    // мелких draw (меню), где прямой режим быстрее (Mesa issue 7072). TU_AUTOTUNE_ALGO=bandwidth — как было.
-    setdefault("TU_AUTOTUNE_ALGO", "profiled");
+    // Turnip: выбор режима прохода (тайлы GMEM или прямо в память).
+    // prefer_gmem удерживает тайлы сцены в 12 МБ кристальной памяти Adreno 830, исключая сброс в DRAM.
+    setdefault("TU_AUTOTUNE_ALGO", "prefer_gmem");
+    setdefault("TU_AUTOTUNE_FLAGS", "big_gmem");
+    setdefault("TU_DEBUG", "force_concurrent_binning,hiprio");
+    setdefault("APS5_OUTPUT_RES", "1080p");
     setdefault("APS5_TEXTURE_CHECK_PER_FRAME", "1");
     setdefault("APS5_LOG_FPS", "1");
     // Кэш трансляции box64: в окне заставок половина главного потока — трансляция нового x86-кода.
