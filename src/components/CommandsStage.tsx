@@ -60,7 +60,7 @@ echo "Repo: $REPO_DIR"
 echo "AnyPS5 source: $A"
 echo "Patches: $P"
 
-# 1. Применяем все 6 официальных патчей AnyPS5 без конфликтов
+# 1. Применяем все 7 официальных патчей AnyPS5 без конфликтов
 cd "$REPO_DIR" && git pull || true
 git -C "$A" checkout -- .
 git -C "$A" clean -fd 2>/dev/null || true
@@ -72,6 +72,7 @@ PATCH_LIST=(
   "anyps5-skip-failed-shaders"
   "anyps5-pass-timing"
   "anyps5-host-ftz"
+  "anyps5-guest-allocations"
 )
 
 for p in "\${PATCH_LIST[@]}"; do
@@ -89,14 +90,20 @@ done
 
 # 2. Пересобираем мышь и транслятор графики AGC (bionic)
 echo "=== Компиляция нативных модулей libSceMouse и libSceAgcDriver ==="
+# Устранение 5 предупреждений -Wreturn-type-c-linkage в AnyPS5 GuestAllocations.hpp
+GUEST_HDR="$A/core/libs/prx/libc/include/GuestAllocations.hpp"
+if [ -f "$GUEST_HDR" ] && ! grep -q "Wreturn-type-c-linkage" "$GUEST_HDR"; then
+  sed -i '/GuestAllocationsAcquire_nid_postfix/i #if defined(__clang__)\n#pragma clang diagnostic ignored "-Wreturn-type-c-linkage"\n#endif' "$GUEST_HDR" 2>/dev/null || true
+  echo -e "\\033[32m[OK]\\033[0m Подавлены предупреждения C-linkage в GuestAllocations.hpp"
+fi
 cd "$A" && cmake --build build-bionic --target libSceMouse libSceAgcDriver -j$(nproc) 2>&1 | tail -n 8
 
 # 3. Собираем и устанавливаем APK с Root
 echo "=== Сборка APK пакета ==="
 
 # Настройка путей SDK и компонентов Termux под структуру ~/ps5-android
-export ANDROID_JAR="\$(find \"\$HOME/ps5-android/android-sdk\" \"\$REPO_DIR/../android-sdk\" -name \"android.jar\" 2>/dev/null | sort -V | tail -n 1)"
-[ -n "\$ANDROID_JAR" ] || export ANDROID_JAR="\$HOME/ps5-android/android-sdk/platforms/android-35/android.jar"
+export ANDROID_JAR="\$(find \"\$HOME/ps5-android/deps/android-sdk\" \"\$HOME/ps5-android/android-sdk\" \"\$REPO_DIR/../android-sdk\" -name \"android.jar\" 2>/dev/null | sort -V | tail -n 1)"
+[ -n "\$ANDROID_JAR" ] || export ANDROID_JAR="\$HOME/ps5-android/deps/android-sdk/platforms/android-35/android.jar"
 export ANYPS5_DIR="\$HOME/ps5-android/src/AnyPS5"
 export BOX64_DIR="\$HOME/ps5-android/src/box64"
 export MESA_BUILD_DIR="\$HOME/ps5-android/src/mesa-26.3/build-android"
@@ -174,7 +181,7 @@ echo "=== ГОТОВО! ПАТЧИ, ДРАЙВЕР, APK И КОНФИГ TURNIP �
   const masterScriptText = generateMasterScript();
 
   // Команды для отдельных шагов
-  const step1Text = `# Шаг 1: Наложение всех 6 патчей AnyPS5
+  const step1Text = `# Шаг 1: Наложение всех 7 официальных патчей AnyPS5
 cd ~/ps5-android/pvz-replanted-android && git pull || true
 A=~/ps5-android/src/AnyPS5
 P=~/ps5-android/pvz-replanted-android/patches
@@ -182,17 +189,25 @@ P=~/ps5-android/pvz-replanted-android/patches
 git -C $A checkout -- .
 git -C $A clean -fd 2>/dev/null || true
 
-for p in anyps5-mouse-absolute anyps5-volume-2darray anyps5-line-on-plane anyps5-skip-failed-shaders anyps5-pass-timing anyps5-host-ftz; do
+for p in anyps5-mouse-absolute anyps5-volume-2darray anyps5-line-on-plane anyps5-skip-failed-shaders anyps5-pass-timing anyps5-host-ftz anyps5-guest-allocations; do
   git -C $A apply --whitespace=nowarn --ignore-whitespace "$P/$p.patch" && echo "[OK] $p" || echo "[FAIL] $p"
 done`;
 
   const step2Text = `# Шаг 2: Компиляция драйверов AnyPS5 под bionic (arm64)
 A=~/ps5-android/src/AnyPS5
+
+# Устранение 5 предупреждений -Wreturn-type-c-linkage в GuestAllocations.hpp
+GUEST_HDR="$A/core/libs/prx/libc/include/GuestAllocations.hpp"
+if [ -f "$GUEST_HDR" ] && ! grep -q "Wreturn-type-c-linkage" "$GUEST_HDR"; then
+  sed -i '/GuestAllocationsAcquire_nid_postfix/i #if defined(__clang__)\n#pragma clang diagnostic ignored "-Wreturn-type-c-linkage"\n#endif' "$GUEST_HDR" 2>/dev/null || true
+  echo "[OK] Предупреждения C-linkage в GuestAllocations.hpp подавлены"
+fi
+
 cd $A && cmake --build build-bionic --target libSceMouse libSceAgcDriver -j$(nproc) 2>&1 | tail -10`;
 
   const step3Text = `# Шаг 3: Сборка и установка APK под Root
-export ANDROID_JAR="$(find "$HOME/ps5-android/android-sdk" -name "android.jar" 2>/dev/null | sort -V | tail -n 1)"
-[ -n "$ANDROID_JAR" ] || export ANDROID_JAR="$HOME/ps5-android/android-sdk/platforms/android-35/android.jar"
+export ANDROID_JAR="$(find "$HOME/ps5-android/deps/android-sdk" "$HOME/ps5-android/android-sdk" -name "android.jar" 2>/dev/null | sort -V | tail -n 1)"
+[ -n "$ANDROID_JAR" ] || export ANDROID_JAR="$HOME/ps5-android/deps/android-sdk/platforms/android-35/android.jar"
 export ANYPS5_DIR="$HOME/ps5-android/src/AnyPS5"
 export BOX64_DIR="$HOME/ps5-android/src/box64"
 export MESA_BUILD_DIR="$HOME/ps5-android/src/mesa-26.3/build-android"
@@ -342,7 +357,7 @@ su -c 'tail -f /data/data/org.anyps5.android/files/games/PPSA37318/box64.log | g
             }`}
           >
             <FolderGit2 className="w-3.5 h-3.5 text-sky-300" />
-            <span>Шаг 1: 6 патчей</span>
+            <span>Шаг 1: 7 патчей</span>
           </button>
 
           <button
@@ -537,6 +552,37 @@ su -c 'tail -f /data/data/org.anyps5.android/files/games/PPSA37318/box64.log | g
               <p className="text-[11px] text-[#a5d6a7] mt-1 leading-relaxed">
                 Встраивает точный GPU-таймер по каждому проходу рендера (0x95, 0x9b, 0x97) для непрерывного аудита миллисекунд.
               </p>
+            </div>
+
+            <div className="bg-[#153e1b] border border-[#2e5e32] p-4 rounded-xl">
+              <div className="flex items-center gap-2 text-xs font-bold text-white">
+                <CheckCircle2 className="w-4 h-4 text-emerald-400" />
+                <span>anyps5-guest-allocations.patch</span>
+              </div>
+              <p className="text-[11px] text-[#a5d6a7] mt-1 leading-relaxed">
+                Подавляет 5 предупреждений Clang <code>-Wreturn-type-c-linkage</code> в <code>GuestAllocations.hpp</code> для функций <code>GuestAllocationsAcquire_nid_postfix</code>, сохраняя совместимость C-ABI и NID-экспортов.
+              </p>
+            </div>
+          </div>
+
+          {/* Блок правил репозитория GitHub */}
+          <div className="bg-[#0f2a14] border border-[#2e7d32]/60 rounded-xl p-4 flex flex-col md:flex-row items-start md:items-center justify-between gap-4">
+            <div className="flex items-start gap-3">
+              <div className="w-9 h-9 rounded-lg bg-emerald-500/20 border border-emerald-400/30 flex items-center justify-center text-emerald-300 shrink-0 mt-0.5">
+                <FolderGit2 className="w-5 h-5" />
+              </div>
+              <div>
+                <h4 className="text-sm font-bold text-white flex items-center gap-2">
+                  <span>Статус Git: Только чистые исходники и патчи</span>
+                  <span className="text-[10px] bg-emerald-950 text-emerald-300 px-2 py-0.5 rounded border border-emerald-800">Чистый коммит</span>
+                </h4>
+                <p className="text-xs text-[#c8e6c9] mt-1 leading-relaxed">
+                  По правилам репозитория в Git входят <b>только исходные коды</b> (.ts, .tsx, .c, .h, .sh, .patch). Логи (*.log, box64.log), текстовые дампы шейдеров (*.txt), архивы драйвера Turnip (*.zip) и SDK (android.jar) изолированы в <code>.gitignore</code> и никогда не засоряют коммиты.
+                </p>
+              </div>
+            </div>
+            <div className="text-xs font-mono bg-[#050f07] px-3 py-2 rounded-lg border border-[#1b3d20] text-emerald-300 shrink-0 select-all">
+              git add . && git commit -m "fix(build): clean source update"
             </div>
           </div>
         </div>

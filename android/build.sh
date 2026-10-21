@@ -12,23 +12,60 @@ PARENT="$(cd "$ROOT/.." && pwd)"
 SDK="${ANDROID_JAR:-}"
 if [ -z "$SDK" ] || [ ! -f "$SDK" ]; then
   for candidate in \
+    "$PARENT/deps/android-sdk/platforms/android-35/android.jar" \
+    "$PARENT/deps/android-sdk/platforms/android-34/android.jar" \
+    "$PARENT/deps/android-sdk/platforms/android-33/android.jar" \
+    "$HOME/ps5-android/deps/android-sdk/platforms/android-35/android.jar" \
+    "$HOME/ps5-android/deps/android-sdk/platforms/android-34/android.jar" \
+    "$HOME/ps5-android/deps/android-sdk/platforms/android-33/android.jar" \
     "$PARENT/android-sdk/platforms/android-35/android.jar" \
     "$PARENT/android-sdk/platforms/android-34/android.jar" \
     "$PARENT/android-sdk/platforms/android-33/android.jar" \
     "$HOME/ps5-android/android-sdk/platforms/android-35/android.jar" \
     "$HOME/ps5-android/android-sdk/platforms/android-34/android.jar" \
     "$HOME/ps5-android/android-sdk/platforms/android-33/android.jar" \
+    "$PARENT/apk/deps/android-sdk/platforms/android-35/android.jar" \
+    "$HOME/ps5-android/apk/deps/android-sdk/platforms/android-35/android.jar" \
     "$ROOT/deps/android-sdk/platforms/android-35/android.jar" \
-    "$ROOT/deps/android-sdk/platforms/android-34/android.jar"; do
+    "$ROOT/deps/android-sdk/platforms/android-34/android.jar" \
+    "$HOME/android-sdk/platforms/android-35/android.jar"; do
     if [ -f "$candidate" ]; then SDK="$candidate"; break; fi
   done
   if [ -z "$SDK" ] || [ ! -f "$SDK" ]; then
-    SDK="$(find "$PARENT/android-sdk" "$HOME/ps5-android/android-sdk" "$ROOT/deps/android-sdk" -name "android.jar" 2>/dev/null | sort -V | tail -n 1 || true)"
+    SDK="$(find "$PARENT" "$HOME/ps5-android" "$HOME" -maxdepth 6 -name "android.jar" 2>/dev/null | sort -V | tail -n 1 || true)"
   fi
 fi
+
+# Если android.jar не найден локально — пробуем автоматическую загрузку платформы android-35
 if [ -z "$SDK" ] || [ ! -f "$SDK" ]; then
-  SDK="$ROOT/deps/android-sdk/platforms/android-35/android.jar"
+  TARGET_DIR="$ROOT/deps/android-sdk/platforms/android-35"
+  [ -d "$PARENT/deps" ] && TARGET_DIR="$PARENT/deps/android-sdk/platforms/android-35"
+  mkdir -p "$TARGET_DIR"
+  AUTO_JAR="$TARGET_DIR/android.jar"
+  echo "[*] Поиск android.jar: загрузка официальной платформы android-35 в $AUTO_JAR..."
+  if command -v curl >/dev/null 2>&1; then
+    curl -fsSL -o "$AUTO_JAR" "https://raw.githubusercontent.com/Sable/android-platforms/master/android-35/android.jar" 2>/dev/null || \
+    curl -fsSL -o "$AUTO_JAR" "https://github.com/Shubham-S-B/android-jar/raw/master/android-34/android.jar" 2>/dev/null || true
+  elif command -v wget >/dev/null 2>&1; then
+    wget -q -O "$AUTO_JAR" "https://raw.githubusercontent.com/Sable/android-platforms/master/android-35/android.jar" 2>/dev/null || true
+  fi
+  if [ -f "$AUTO_JAR" ] && [ -s "$AUTO_JAR" ]; then
+    SDK="$AUTO_JAR"
+    echo "[OK] android.jar успешно получен: $SDK"
+  fi
 fi
+
+if [ -z "$SDK" ] || [ ! -f "$SDK" ]; then
+  echo "======================================================================"
+  echo " ОШИБКА: android.jar не найден!"
+  echo " В Termux выполните быструю установку SDK:"
+  echo "   mkdir -p ~/ps5-android/deps/android-sdk/platforms/android-35 && \\"
+  echo "   curl -L -o ~/ps5-android/deps/android-sdk/platforms/android-35/android.jar https://raw.githubusercontent.com/Sable/android-platforms/master/android-35/android.jar"
+  echo " Или укажите путь: export ANDROID_JAR=/путь/к/android.jar"
+  echo "======================================================================"
+  exit 1
+fi
+echo "[SDK] Используется: $SDK"
 
 # Автоопределение AnyPS5 и box64
 ANYPS5="${ANYPS5_DIR:-}"
@@ -96,6 +133,7 @@ grep -v "^warning\|^Note" "$OUT/javac.log" || true
 d8 --min-api 26 --lib "$SDK" --output "$OUT" $(find "$CLASSES" -name "*.class" -print)
 
 # Нативные библиотеки
+PREFIX="${PREFIX:-/data/data/com.termux/files/usr}"
 cp "${BOX64_BUILD:-$BOX64/build-lib}/libbox64.so" "$LIB/"
 cp "$PREFIX/lib/libandroid-sysv-semaphore.so" "$PREFIX/lib/libiconv.so" "$PREFIX/lib/libc++_shared.so" "$LIB/"
 cp "$RELINKER" "$LIB/librelinker.so"
@@ -133,3 +171,10 @@ zipalign -f -p 4 "$OUT/AnyPS5-unsigned.apk" "$OUT/AnyPS5-aligned.apk"
 apksigner sign --v1-signing-enabled true --v2-signing-enabled true --v3-signing-enabled true --ks "$KEY" --ks-pass pass:android --key-pass pass:android --ks-key-alias androiddebugkey --out "$OUT/PvZ-Replanted.apk" "$OUT/AnyPS5-aligned.apk"
 apksigner verify "$OUT/PvZ-Replanted.apk"
 echo "Built $OUT/PvZ-Replanted.apk"
+
+# Синхронизация с альтернативной папкой apk в Termux
+if [ -d "$PARENT/apk" ] && [ "$PARENT/apk" != "$APK" ]; then
+  mkdir -p "$PARENT/apk/out" 2>/dev/null || true
+  cp -f "$OUT/PvZ-Replanted.apk" "$PARENT/apk/out/PvZ-Replanted.apk" 2>/dev/null || true
+  echo "Синхронизировано: $PARENT/apk/out/PvZ-Replanted.apk"
+fi
