@@ -395,13 +395,22 @@ public final class TouchControlsView extends View {
         return true;
     }
 
+    private final android.os.Handler mouseHandler = new android.os.Handler(android.os.Looper.getMainLooper());
+
     private boolean mouseUp(MotionEvent event, int id) {
         if (id == mouseExtraPointer) { mouseExtraPointer = -1; return true; }
-        if (mouseDragging) mouse(0, 0, 1, false);
-        else if (!mouseMoved && event.getEventTime() - mouseDownTime <= MOUSE_TAP_MS) {
+        if (mouseDragging) {
+            mouse(0, 0, 1, false);
+        } else if (!mouseMoved && event.getEventTime() - mouseDownTime <= MOUSE_TAP_MS) {
             final int button = mouseSecondFinger ? 2 : 1;
+            // Игра опрашивает sceMouseRead раз в кадр (на 16-60 FPS это каждые 16-65 мс).
+            // Нельзя сразу отжимать кнопку в ту же микросекунду! Задерживаем отжатие на 85 мс:
             mouse(0, 0, button, true);
-            mouse(0, 0, button, false);
+            mouseHandler.postDelayed(new Runnable() {
+                @Override public void run() {
+                    mouse(0, 0, button, false);
+                }
+            }, 85);
         }
         mousePointer = -1;
         mouseDragging = false;

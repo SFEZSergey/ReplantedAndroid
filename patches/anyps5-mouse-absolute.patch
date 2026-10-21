@@ -140,6 +140,7 @@ index 0a2d6798c..8bcb0c402 100644
  bool connected = true;
  #endif
  std::uint32_t buttons = 0;
++std::uint32_t latchedButtons = 0;
 +// The absolute-position mode: the relative motion the host reports moves a cursor over the
 +// virtual screen the game picks (deltas arrive in 1920-wide units, the touch layer's scale); the
 +// wheel accumulates between absolute reads. PPSA37318 picks size 3 and recentres the cursor on
@@ -206,7 +207,7 @@ index 0a2d6798c..8bcb0c402 100644
 +    MouseAbsoluteData sample{};
 +    sample.timestamp = sceKernelGetProcessTime();
 +    sample.connected = connected ? 1u : 0u;
-+    sample.buttons = connected ? buttons : 0u;
++    sample.buttons = connected ? (buttons | std::exchange(latchedButtons, 0u)) : 0u;
 +    sample.x = static_cast<std::uint16_t>(absoluteX);
 +    sample.y = static_cast<std::uint16_t>(absoluteY);
 +    sample.wheel = std::exchange(absoluteWheel, 0);
@@ -218,7 +219,7 @@ index 0a2d6798c..8bcb0c402 100644
  void Publish(const MouseInputEvent& event) {
      std::lock_guard lock(mouseMutex);
      if (event.connectionChange) {
-@@ -93,6 +162,11 @@ void Publish(const MouseInputEvent& event) {
+@@ -93,6 +162,14 @@ void Publish(const MouseInputEvent& event) {
          return;
      }
      if (!opened) return;
@@ -227,9 +228,11 @@ index 0a2d6798c..8bcb0c402 100644
 +    clampAbsolute();
 +    absoluteWheel += event.wheel;
 +    absoluteTilt += event.tilt;
-     if (event.resetButtons) buttons = 0;
-     if (event.button != 0) {
-         if (event.pressed) buttons |= event.button;
++    if (event.resetButtons) { buttons = 0; latchedButtons = 0; }
++    if (event.button != 0) {
++        if (event.pressed) { buttons |= event.button; latchedButtons |= event.button; }
++        else buttons &= ~event.button;
++    }
 diff --git a/core/libs/prx/libSceMouse/tests/Mouse.cpp b/core/libs/prx/libSceMouse/tests/Mouse.cpp
 index e01f3f9b4..4e642496f 100644
 --- a/core/libs/prx/libSceMouse/tests/Mouse.cpp
