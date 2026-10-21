@@ -625,9 +625,9 @@ int SDL_main(int argc, char **argv) {
     setdefault("BOX64_DYNAREC_PAUSE", "3");
     // Кэш ресурсов и рецепты для draw со сгенерированными стадиями (прямоугольники интерфейса).
     setdefault("APS5_GENERATED_STAGE_CACHE", "1");
-    // Конвейер draw: подготовка и запись Vulkan в двух потоках (APS5_PIPELINE_DRAWS=0 — по-старому, в одном).
-    setdefault("APS5_PIPELINE_DRAWS", "1");
-    setdefault("BOX64_LOG", "1");
+    // Конвейер draw: по умолчанию 0 (в одном потоке без лишней межпоточной синхронизации мьютексов в Bionic).
+    setdefault("APS5_PIPELINE_DRAWS", "0");
+    setdefault("BOX64_LOG", "0");
     setdefault("BOX64_SHOWBT", "1");
     setdefault("BOX64_DYNAREC_BIGBLOCK", "3");
     setdefault("BOX64_DYNAREC_CALLRET", "1");
@@ -647,11 +647,9 @@ int SDL_main(int argc, char **argv) {
     // Касания — только сенсорное управление (геймпад игрока 1): SDL не делает из них мышь, иначе
     // игра видела мышь вторым устройством ввода (второй игрок) при касании мимо кнопок.
     setdefault("SDL_TOUCH_MOUSE_EVENTS", "0");
-    // Turnip: выбор режима прохода (тайлы GMEM или прямо в память).
-    // prefer_gmem удерживает тайлы сцены в 12 МБ кристальной памяти Adreno 830, исключая сброс в DRAM.
-    setdefault("TU_AUTOTUNE_ALGO", "prefer_gmem");
-    setdefault("TU_AUTOTUNE_FLAGS", "big_gmem");
-    setdefault("TU_DEBUG", "force_concurrent_binning,hiprio");
+    // Turnip: динамический autotune по шине памяти (bandwidth) выбирает GMEM для совместимых целей и
+    // не разрывает 4K-проходы на 12 тайлов.
+    setdefault("TU_AUTOTUNE_ALGO", "bandwidth");
     setdefault("APS5_OUTPUT_RES", "1080p");
     setdefault("APS5_TEXTURE_CHECK_PER_FRAME", "1");
     setdefault("APS5_LOG_FPS", "1");

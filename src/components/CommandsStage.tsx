@@ -129,46 +129,46 @@ else
   echo -e "\\033[31m[WARN]\\033[0m APK файл не найден, проверьте лог сборки"
 fi
 
-# 4. Записываем конфигурацию Turnip + Box64 и сбрасываем старый кэш
-echo "=== Настройка env.txt (GMEM + Fast-Math + ${resolution}) ==="
+# 4. Записываем конфигурацию Turnip + Box64 (Максимальный FPS, без тормозящего GMEM-троттлинга)
+echo "=== Настройка env.txt (Чистый High-FPS режим, 1080p, bandwidth) ==="
 su -c '
 GAME_DIR="/data/data/org.anyps5.android/files/games/PPSA37318"
 mkdir -p "$GAME_DIR"
 rm -rf /data/data/org.anyps5.android/cache/*
-rm -rf "$GAME_DIR/shader_cache"/* 2>/dev/null || true
 
 cat << "EOF" > "$GAME_DIR/env.txt"
-# Turnip 26.3 Driver Tuning (tu_autotune.cc & tu_util.cc)
-TU_AUTOTUNE_ALGO=prefer_gmem
-TU_AUTOTUNE_FLAGS=big_gmem
-TU_DEBUG=force_concurrent_binning,hiprio
+# Turnip 26.3 Driver Tuning (динамический autotune bandwidth без GMEM-троттлинга на 4K)
+TU_AUTOTUNE_ALGO=bandwidth
 
-# AnyPS5 Adreno Hardware Flags (anyps5-host-ftz.patch)
+# AnyPS5 Adreno Hardware Flags (аппаратные инструкции Adreno 830)
 APS5_HOST_FTZ=1
 APS5_HOST_NAN=1
 APS5_HOST_DPP=1
 APS5_HOST_FMA=1
 APS5_NO_QUAD_DPP=0
 
-# Resolution & Frame Limit (${resolution} решает Late-Z боттлнек)
+# Настройки разрешения и лимита FPS (1080p устраняет Late-Z перегрузку)
 APS5_OUTPUT_RES=${resParam}
 APS5_SCALE_MODE=fit
 APS5_FPS_LIMIT=${fpsLimit}
-APS5_GPU_TURBO=${turboParam}
-${profileParam}# Pipelines & Texture Cache
+APS5_GPU_TURBO=0
+
+# Отключение профилирования (исключает сброс pass-*.spv на диск и межпоточные блокировки)
+APS5_PROFILE_GPU=0
+
+# Стабильность конвейера и кэш
 APS5_TEXTURE_CACHE_MIB=512
 APS5_GENERATED_STAGE_CACHE=1
-APS5_PIPELINE_DRAWS=1
+APS5_PIPELINE_DRAWS=0
 APS5_SKIP_FAILED_SHADERS=1
 
 # Box64 Oryon DynaRec Tuning
+BOX64_LOG=0
 BOX64_DYNAREC_BIGBLOCK=3
-BOX64_DYNAREC_FORWARD=512
-BOX64_DYNAREC_STRONGMEM=0
+BOX64_DYNAREC_CALLRET=1
 BOX64_DYNAREC_FASTROUND=1
 BOX64_DYNAREC_FASTNAN=1
 BOX64_DYNAREC_PAUSE=3
-BOX64_APS5_NATIVE=1
 EOF
 
 cp "$GAME_DIR/env.txt" /sdcard/Android/data/org.anyps5.android/files/games/PPSA37318/env.txt 2>/dev/null || true
@@ -226,17 +226,14 @@ APK_PATH="/data/data/com.termux/files/home/ps5-android/apk/out/PvZ-Replanted.apk
 cp "$APK_PATH" /data/local/tmp/pvz.apk && chmod 644 /data/local/tmp/pvz.apk && pm install -r /data/local/tmp/pvz.apk
 '`;
 
-  const step4Text = `# Шаг 4: Запись боевого env.txt для Mewgenics и сброс старого кэша
+  const step4Text = `# Шаг 4: Запись чистого High-FPS env.txt для Mewgenics
 su -c '
 GAME_DIR="/data/data/org.anyps5.android/files/games/PPSA37318"
 mkdir -p "$GAME_DIR"
 rm -rf /data/data/org.anyps5.android/cache/*
-rm -rf "$GAME_DIR/shader_cache"/* 2>/dev/null || true
 
 cat << "EOF" > "$GAME_DIR/env.txt"
-TU_AUTOTUNE_ALGO=prefer_gmem
-TU_AUTOTUNE_FLAGS=big_gmem
-TU_DEBUG=force_concurrent_binning,hiprio
+TU_AUTOTUNE_ALGO=bandwidth
 APS5_HOST_FTZ=1
 APS5_HOST_NAN=1
 APS5_HOST_DPP=1
@@ -245,23 +242,23 @@ APS5_NO_QUAD_DPP=0
 APS5_OUTPUT_RES=1080p
 APS5_SCALE_MODE=fit
 APS5_FPS_LIMIT=60
-APS5_GPU_TURBO=1
+APS5_GPU_TURBO=0
+APS5_PROFILE_GPU=0
 APS5_TEXTURE_CACHE_MIB=512
 APS5_GENERATED_STAGE_CACHE=1
-APS5_PIPELINE_DRAWS=1
+APS5_PIPELINE_DRAWS=0
 APS5_SKIP_FAILED_SHADERS=1
+BOX64_LOG=0
 BOX64_DYNAREC_BIGBLOCK=3
-BOX64_DYNAREC_FORWARD=512
-BOX64_DYNAREC_STRONGMEM=0
+BOX64_DYNAREC_CALLRET=1
 BOX64_DYNAREC_FASTROUND=1
 BOX64_DYNAREC_FASTNAN=1
 BOX64_DYNAREC_PAUSE=3
-BOX64_APS5_NATIVE=1
 EOF
 
 cp "$GAME_DIR/env.txt" /sdcard/Android/data/org.anyps5.android/files/games/PPSA37318/env.txt 2>/dev/null || true
 chown -R $(stat -c %u:%g /data/data/org.anyps5.android/files) "$GAME_DIR" 2>/dev/null || true
-echo "[OK] env.txt успешно записан и кэш сброшен!"
+echo "[OK] Чистый env.txt успешно записан!"
 '`;
 
   const logsCmdText = `# Мониторинг времени отрисовки кадров [gputime] в реальном времени

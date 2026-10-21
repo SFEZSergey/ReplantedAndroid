@@ -1,5 +1,5 @@
 diff --git a/core/libs/prx/libSceAgcDriver/Graphics/include/Recorder.hpp b/core/libs/prx/libSceAgcDriver/Graphics/include/Recorder.hpp
-index 5342412e5..4016c404c 100644
+index 5342412..4016c40 100644
 --- a/core/libs/prx/libSceAgcDriver/Graphics/include/Recorder.hpp
 +++ b/core/libs/prx/libSceAgcDriver/Graphics/include/Recorder.hpp
 @@ -66,7 +66,7 @@ public:
@@ -33,7 +33,7 @@ index 5342412e5..4016c404c 100644
          } renderPass;
          PassHazards passHazards;
 diff --git a/core/libs/prx/libSceAgcDriver/Graphics/src/Draw.cpp b/core/libs/prx/libSceAgcDriver/Graphics/src/Draw.cpp
-index 825b51bf2..7be36f7c3 100644
+index 825b51b..22f7027 100644
 --- a/core/libs/prx/libSceAgcDriver/Graphics/src/Draw.cpp
 +++ b/core/libs/prx/libSceAgcDriver/Graphics/src/Draw.cpp
 @@ -31,6 +31,7 @@
@@ -44,7 +44,7 @@ index 825b51bf2..7be36f7c3 100644
  #include <unordered_map>
  #include <utility>
  
-@@ -888,6 +889,62 @@ const char* DrawRecipeMissName(DrawRecipeMiss miss) {
+@@ -888,6 +889,64 @@ const char* DrawRecipeMissName(DrawRecipeMiss miss) {
  
  namespace {
  
@@ -90,12 +90,14 @@ index 825b51bf2..7be36f7c3 100644
 +                kinds[static_cast<std::size_t>(binding.kind)] += binding.count;
 +                bda = bda || binding.role == ShaderRecompiler::DescriptorRole::BdaPagetable;
 +            }
-+            // The program itself, beside the game (the working directory), for spirv-dis.
-+            char path[64];
-+            std::snprintf(path, sizeof(path), "pass-%llx.spv", static_cast<unsigned long long>(key));
-+            if (auto* file = std::fopen(path, "wb")) {
-+                std::fwrite(words.data(), sizeof(std::uint32_t), words.size(), file);
-+                std::fclose(file);
++            // The program itself, beside the game, for spirv-dis (only if APS5_DUMP_SPV=1).
++            if (const char* dumpSpv = std::getenv("APS5_DUMP_SPV"); dumpSpv != nullptr && std::strcmp(dumpSpv, "0") != 0) {
++                char path[64];
++                std::snprintf(path, sizeof(path), "pass-%llx.spv", static_cast<unsigned long long>(key));
++                if (auto* file = std::fopen(path, "wb")) {
++                    std::fwrite(words.data(), sizeof(std::uint32_t), words.size(), file);
++                    std::fclose(file);
++                }
 +            }
 +            shape = std::to_string(words.size()) + " words " + std::to_string(instructions) + " instructions, sample " + std::to_string(samples) + " fetch " + std::to_string(fetches) + " read " + std::to_string(reads) + " write " + std::to_string(writes) + " loops " + std::to_string(loops) + "; bindings ubo " + std::to_string(kinds[0]) + " ssbo " + std::to_string(kinds[1]) + " texel " + std::to_string(kinds[2] + kinds[3]) + " sampled " + std::to_string(kinds[4]) + " storage-image " + std::to_string(kinds[5]) + " sampler " + std::to_string(kinds[6]) + (bda ? " bda" : "") + ", runtime images " + std::to_string(program->runtimeImageCount);
 +        }
@@ -107,7 +109,7 @@ index 825b51bf2..7be36f7c3 100644
  // APS5_PROFILE_DRAW: the per-phase timers of one draw (DrawPhase), shared by Draw's parts and
  // DrawWithRecipe.
  struct DrawTimer {
-@@ -1736,6 +1793,11 @@ void recordDraw(const Context& context, const State& state, const Pm4::DrawParam
+@@ -1736,6 +1795,11 @@ void recordDraw(const Context& context, const State& state, const Pm4::DrawParam
      // The draw's [gputime] class range: from its first barrier to the pass's trailing barrier (a
      // continued draw lies inside its pass's range).
      const auto drawTiming = !continued ? recorder->BeginGpuTiming(CommandClass::Draw) : Recorder::NoTiming;
@@ -119,7 +121,7 @@ index 825b51bf2..7be36f7c3 100644
      if (!continued && Recorder::BarrierValidate()) {
          auto reads = resources.InPlaceReads();
          reads.insert(reads.end(), inputs.inPlaceReads.begin(), inputs.inPlaceReads.end());
-@@ -1809,7 +1871,7 @@ void recordDraw(const Context& context, const State& state, const Pm4::DrawParam
+@@ -1809,7 +1873,7 @@ void recordDraw(const Context& context, const State& state, const Pm4::DrawParam
              }
          };
      }
@@ -128,7 +130,7 @@ index 825b51bf2..7be36f7c3 100644
      timer.phase(PhaseRecord);
      keepRecordedDraw(*recorder, record.resources, std::move(record.pipeline), std::move(record.framebuffer), inputs, std::move(record.targets), std::move(scratch), std::move(checkRecords), record.listed, record.completion, outcome);
      timer.phase(PhaseKeep);
-@@ -2222,6 +2284,9 @@ void Draw(const Context& context, const State& state, const Pm4::DrawParameters&
+@@ -2222,6 +2286,9 @@ void Draw(const Context& context, const State& state, const Pm4::DrawParameters&
      APS5_LOG_CHARS_OUT_DEBUG("CommandBatch created");
      // The draw's [gputime] class range: from its first barrier to the download barrier.
      const auto drawTiming = recorded ? recorder->BeginGpuTiming(CommandClass::Draw) : Recorder::NoTiming;
@@ -138,7 +140,7 @@ index 825b51bf2..7be36f7c3 100644
      if (recorded && Recorder::BarrierValidate()) {
          auto reads = resources->InPlaceReads();
          reads.insert(reads.end(), inputs.inPlaceReads.begin(), inputs.inPlaceReads.end());
-@@ -2352,7 +2417,10 @@ void Draw(const Context& context, const State& state, const Pm4::DrawParameters&
+@@ -2352,7 +2419,10 @@ void Draw(const Context& context, const State& state, const Pm4::DrawParameters&
      download.dstAccessMask = VK_ACCESS_HOST_READ_BIT;
      context.Resolved(&DeviceFunctions::cmdPipelineBarrier, "vkCmdPipelineBarrier")(commands, VK_PIPELINE_STAGE_TRANSFER_BIT | inputs.shaderStages, VK_PIPELINE_STAGE_HOST_BIT, 0, 1, &download, 0, nullptr, 0, nullptr);
      countBarrier();
@@ -151,7 +153,7 @@ index 825b51bf2..7be36f7c3 100644
      APS5_LOG_CHARS_OUT_DEBUG("SubmitAndWait");
      timer.phase(PhaseRecord);
 diff --git a/core/libs/prx/libSceAgcDriver/Graphics/src/Recorder.cpp b/core/libs/prx/libSceAgcDriver/Graphics/src/Recorder.cpp
-index 2b5536d0e..9638c27df 100644
+index 2b5536d..eb88fe8 100644
 --- a/core/libs/prx/libSceAgcDriver/Graphics/src/Recorder.cpp
 +++ b/core/libs/prx/libSceAgcDriver/Graphics/src/Recorder.cpp
 @@ -1392,11 +1392,12 @@ Recorder::DrawPassStart Recorder::StartDrawPass(std::uint64_t key, bool forced,
@@ -184,7 +186,7 @@ index 2b5536d0e..9638c27df 100644
  double timingProgramMs = 0, timingClassMs = 0, timingUnionMs = 0, timingBatchMs = 0;
  std::uint64_t timingBatches = 0;
  
-@@ -1802,6 +1805,12 @@ void reportBarriers() {
+@@ -1802,8 +1805,17 @@ void reportBarriers() {
  
  }
  
@@ -195,9 +197,15 @@ index 2b5536d0e..9638c27df 100644
 +}
 +
  bool Recorder::GpuTimingEnabled() {
-     static const bool enabled = std::getenv("APS5_PROFILE_GPU") != nullptr;
+-    static const bool enabled = std::getenv("APS5_PROFILE_GPU") != nullptr;
++    static const bool enabled = [] {
++        const char* text = std::getenv("APS5_PROFILE_GPU");
++        return text != nullptr && std::strcmp(text, "0") != 0 && std::strcmp(text, "false") != 0;
++    }();
      return enabled;
-@@ -2378,7 +2387,7 @@ void Recorder::readGpuTiming(Batch& batch) {
+ }
+ 
+@@ -2378,7 +2390,7 @@ void Recorder::readGpuTiming(Batch& batch) {
          ++totals.count;
          totals.ms += ns / 1e6;
          totals.bytes += batch.timedBytes[i];
@@ -206,7 +214,7 @@ index 2b5536d0e..9638c27df 100644
          intervals.emplace_back(stamps[i * 2], stamps[i * 2 + 1]);
      }
      std::sort(intervals.begin(), intervals.end());
-@@ -2395,10 +2404,12 @@ void Recorder::readGpuTiming(Batch& batch) {
+@@ -2395,10 +2407,12 @@ void Recorder::readGpuTiming(Batch& batch) {
      lastReport = now;
      const auto presents = timingPresents.exchange(0, std::memory_order_relaxed);
      const double perPresent = presents != 0 ? 1.0 / static_cast<double>(presents) : 0.0;
@@ -221,7 +229,7 @@ index 2b5536d0e..9638c27df 100644
              char text[160];
              std::snprintf(text, sizeof(text), " %s x%llu %.1fms %.1fMiB (per present x%.1f %.2fms %.2fMiB)", CommandClassNames[key - ClassKey(CommandClass::DispatchLeading)], static_cast<unsigned long long>(totals.count), totals.ms, totals.bytes / 1048576.0, static_cast<double>(totals.count) * perPresent, totals.ms * perPresent, totals.bytes / 1048576.0 * perPresent);
              classes += text;
-@@ -2411,7 +2422,18 @@ void Recorder::readGpuTiming(Batch& batch) {
+@@ -2411,7 +2425,18 @@ void Recorder::readGpuTiming(Batch& batch) {
      AgcDriver::ProfilePrint_nid_no_patch("[gputime] %.0f ms of GPU time in %llu batches over 10 s (batch %.0f ms first to last command; classes %.0f ms, all ranges %.0f ms, untimed %.0f ms outside every range; %llu presents; %llu ranges dropped at the %u cap); by program:", timingProgramMs, static_cast<unsigned long long>(timingBatches), timingBatchMs, timingClassMs, timingUnionMs, timingBatchMs - timingUnionMs, static_cast<unsigned long long>(presents), static_cast<unsigned long long>(timingDropped.exchange(0, std::memory_order_relaxed)), MaxTimedRanges);
      for (std::size_t i = 0; i < hot.size() && i < 12; ++i) AgcDriver::ProfilePrint_nid_no_patch(" 0x%llx x%llu %.0fms", static_cast<unsigned long long>(hot[i].first), static_cast<unsigned long long>(hot[i].second.count), hot[i].second.ms);
      AgcDriver::ProfilePrint_nid_no_patch("; by class:%s\n", classes.c_str());

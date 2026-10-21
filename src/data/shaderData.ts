@@ -411,7 +411,7 @@ export function calculateCustomFrametime(settings: OptimizationSettings) {
 }
 
 export function generateCustomEnvContent(settings: OptimizationSettings): string {
-  const algo = settings.gmemTiling ? 'prefer_gmem' : 'prefer_sysmem';
+  const algo = settings.gmemTiling ? 'bandwidth' : 'sysmem';
   const res = settings.resolution === '4K' ? 'native' : settings.resolution === '1080p' ? '1080p' : '720';
   const ftzVal = settings.fastMathFtz ? '1' : '0';
   const quadVal = settings.quadDpp ? '0' : '1';
@@ -419,11 +419,10 @@ export function generateCustomEnvContent(settings: OptimizationSettings): string
 
   return `# Конфигурация AnyPS5 + Turnip 26.3 для Mewgenics (PPSA37318)
 # Процессор: Qualcomm Snapdragon 8 Elite (SM8750 / Adreno 830)
-# Сгенерировано для удешевления миллисекунд отрисовки кадров
+# Сгенерировано для максимального FPS без GMEM-троттлинга
 
 # 1. ТАЙЛИНГ GMEM И ВЫБОР РЕЖИМА TURNIP
 TU_AUTOTUNE_ALGO=${algo}
-TU_DEBUG=force_concurrent_binning,hiprio
 
 # 2. АППАРАТНАЯ СКОРОСТЬ ШЕЙДЕРОВ ADRENO (anyps5-host-ftz.patch)
 APS5_HOST_FTZ=${ftzVal}

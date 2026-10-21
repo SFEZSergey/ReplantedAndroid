@@ -117,11 +117,10 @@ cd $A && cmake --build build-bionic --target libSceMouse libSceAgcDriver -j$(npr
 cd ~/ps5-android/apk && bash build.sh
 su -c 'cp /data/data/com.termux/files/home/ps5-android/apk/out/PvZ-Replanted.apk /data/local/tmp/pvz.apk && chmod 644 /data/local/tmp/pvz.apk && pm install -r /data/local/tmp/pvz.apk'
 
-# 4. Запись оптимизированного env.txt
+# 4. Запись чистого High-FPS env.txt (без GMEM-троттлинга)
 su -c 'mkdir -p /data/data/org.anyps5.android/files/games/PPSA37318 && rm -rf /data/data/org.anyps5.android/cache/*
 cat << "EOF" > /data/data/org.anyps5.android/files/games/PPSA37318/env.txt
-TU_AUTOTUNE_ALGO=prefer_gmem
-TU_DEBUG=force_concurrent_binning,hiprio
+TU_AUTOTUNE_ALGO=bandwidth
 APS5_HOST_FTZ=1
 APS5_HOST_NAN=1
 APS5_HOST_DPP=1
@@ -130,18 +129,18 @@ APS5_NO_QUAD_DPP=0
 APS5_OUTPUT_RES=1080p
 APS5_SCALE_MODE=fit
 APS5_FPS_LIMIT=60
-APS5_GPU_TURBO=1
+APS5_GPU_TURBO=0
+APS5_PROFILE_GPU=0
 APS5_TEXTURE_CACHE_MIB=512
 APS5_GENERATED_STAGE_CACHE=1
-APS5_PIPELINE_DRAWS=1
+APS5_PIPELINE_DRAWS=0
 APS5_SKIP_FAILED_SHADERS=1
+BOX64_LOG=0
 BOX64_DYNAREC_BIGBLOCK=3
-BOX64_DYNAREC_FORWARD=512
-BOX64_DYNAREC_STRONGMEM=0
+BOX64_DYNAREC_CALLRET=1
 BOX64_DYNAREC_FASTROUND=1
 BOX64_DYNAREC_FASTNAN=1
 BOX64_DYNAREC_PAUSE=3
-BOX64_APS5_NATIVE=1
 EOF
 cp /data/data/org.anyps5.android/files/games/PPSA37318/env.txt /sdcard/Android/data/org.anyps5.android/files/games/PPSA37318/env.txt 2>/dev/null || true'`;
 
