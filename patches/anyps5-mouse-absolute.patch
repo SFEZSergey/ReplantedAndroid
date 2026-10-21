@@ -1,5 +1,43 @@
+diff --git a/core/libs/prx/aps5native/AtomicSharedPtr.hpp b/core/libs/prx/aps5native/AtomicSharedPtr.hpp
+index 0b3d5cd..6d91b8a 100644
+--- a/core/libs/prx/aps5native/AtomicSharedPtr.hpp
++++ b/core/libs/prx/aps5native/AtomicSharedPtr.hpp
+@@ -1,6 +1,14 @@
+ #ifndef CORE_LIBS_PRX_APS5NATIVE_ATOMICSHAREDPTR_HPP
+ #define CORE_LIBS_PRX_APS5NATIVE_ATOMICSHAREDPTR_HPP
+ 
++#if defined(__clang__)
++#undef _LIBCPP_HAS_NO_EXPERIMENTAL_STOP_TOKEN
++#ifndef _LIBCPP_ENABLE_EXPERIMENTAL
++#define _LIBCPP_ENABLE_EXPERIMENTAL 1
++#endif
++#pragma clang diagnostic ignored "-Wreturn-type-c-linkage"
++#endif
++
+ // std::atomic<std::shared_ptr<T>> (C++20, P0718) для libc++, где он не реализован: Android-сборка
+ // AnyPS5 (bionic + libc++). Подключается ко всем файлам флагом -include только в этой сборке.
+ // Реализация на мьютексе: операции без блокировок libstdc++ здесь не нужны, важна семантика.
+diff --git a/core/libs/prx/aps5native/CoreShim.cpp b/core/libs/prx/aps5native/CoreShim.cpp
+index b4e06e1..8dddee3 100644
+--- a/core/libs/prx/aps5native/CoreShim.cpp
++++ b/core/libs/prx/aps5native/CoreShim.cpp
+@@ -2,6 +2,14 @@
+ // функции libc/libkernel, нужные драйверу и выводу, и переадресует их в x86-ядро через мост box64.
+ // C++-объекты x86-стороны (shared_ptr) сюда не попадают: x86 держит их у себя и отдаёт дескрипторы,
+ // а нативные shared_ptr освобождают их через x86 при последней ссылке.
++#if defined(__clang__)
++#undef _LIBCPP_HAS_NO_EXPERIMENTAL_STOP_TOKEN
++#ifndef _LIBCPP_ENABLE_EXPERIMENTAL
++#define _LIBCPP_ENABLE_EXPERIMENTAL 1
++#endif
++#pragma clang diagnostic ignored "-Wreturn-type-c-linkage"
++#endif
++
+ #include "prx/aps5native/Aps5Native.hpp"
+ #include "prx/libc/include/GuestAllocations.hpp"
+ #include "prx/libc/include/GuestArena.hpp"
 diff --git a/core/libs/prx/aps5native/stubs/libSceMouse.cpp b/core/libs/prx/aps5native/stubs/libSceMouse.cpp
-index e0577a584..5411a052d 100644
+index e0577a5..5411a05 100644
 --- a/core/libs/prx/aps5native/stubs/libSceMouse.cpp
 +++ b/core/libs/prx/aps5native/stubs/libSceMouse.cpp
 @@ -22,11 +22,15 @@ const char* const names[] = {
@@ -45,7 +83,7 @@ index e0577a584..5411a052d 100644
 +    return Aps5NativeCall_nid_no_patch(functions[8], a0, a1, a2, 0, 0, 0, 0, 0);
 +}
 diff --git a/core/libs/prx/libSceMouse/Export.cpp b/core/libs/prx/libSceMouse/Export.cpp
-index 9d820d245..a3f7c4699 100644
+index 9d820d2..a3f7c46 100644
 --- a/core/libs/prx/libSceMouse/Export.cpp
 +++ b/core/libs/prx/libSceMouse/Export.cpp
 @@ -18,6 +18,28 @@ int APS5_VABI sceMouseRead(std::int32_t handle, MouseData* data, std::int32_t nu
@@ -78,7 +116,7 @@ index 9d820d245..a3f7c4699 100644
      Mouse::Publish(event);
  }
 diff --git a/core/libs/prx/libSceMouse/include/MouseState.hpp b/core/libs/prx/libSceMouse/include/MouseState.hpp
-index bf7d57a09..4a8fa0d63 100644
+index bf7d57a..4a8fa0d 100644
 --- a/core/libs/prx/libSceMouse/include/MouseState.hpp
 +++ b/core/libs/prx/libSceMouse/include/MouseState.hpp
 @@ -20,6 +20,10 @@ int Initialize();
@@ -93,7 +131,7 @@ index bf7d57a09..4a8fa0d63 100644
  }
  
 diff --git a/core/libs/prx/libSceMouse/include/mouse_structs.h b/core/libs/prx/libSceMouse/include/mouse_structs.h
-index 30c7d3a8f..6b52756e8 100644
+index 30c7d3a..6b52756 100644
 --- a/core/libs/prx/libSceMouse/include/mouse_structs.h
 +++ b/core/libs/prx/libSceMouse/include/mouse_structs.h
 @@ -19,7 +19,27 @@ constexpr int MOUSE_MAX_DATA_NUM = 64;
@@ -125,7 +163,7 @@ index 30c7d3a8f..6b52756e8 100644
  static_assert(alignof(MouseData) == 8);
  static_assert(offsetof(MouseData, timestamp) == 0);
 diff --git a/core/libs/prx/libSceMouse/src/mouse_impl.cpp b/core/libs/prx/libSceMouse/src/mouse_impl.cpp
-index 0a2d6798c..8bcb0c402 100644
+index 0a2d679..628abbc 100644
 --- a/core/libs/prx/libSceMouse/src/mouse_impl.cpp
 +++ b/core/libs/prx/libSceMouse/src/mouse_impl.cpp
 @@ -4,6 +4,7 @@
@@ -136,7 +174,7 @@ index 0a2d6798c..8bcb0c402 100644
  
  namespace {
  std::mutex mouseMutex;
-@@ -20,6 +21,21 @@ bool connected = false;
+@@ -20,6 +21,22 @@ bool connected = false;
  bool connected = true;
  #endif
  std::uint32_t buttons = 0;
@@ -159,7 +197,7 @@ index 0a2d6798c..8bcb0c402 100644
  
  void enqueue(const MouseData& data) {
      if (count == MOUSE_MAX_DATA_NUM) {
-@@ -83,6 +99,59 @@ int Read(std::int32_t handle, MouseData* data, std::int32_t num) {
+@@ -83,6 +100,59 @@ int Read(std::int32_t handle, MouseData* data, std::int32_t num) {
      return available;
  }
  
@@ -219,22 +257,25 @@ index 0a2d6798c..8bcb0c402 100644
  void Publish(const MouseInputEvent& event) {
      std::lock_guard lock(mouseMutex);
      if (event.connectionChange) {
-@@ -93,6 +162,14 @@ void Publish(const MouseInputEvent& event) {
+@@ -93,9 +163,14 @@ void Publish(const MouseInputEvent& event) {
          return;
      }
      if (!opened) return;
+-    if (event.resetButtons) buttons = 0;
 +    absoluteX += event.x * static_cast<double>(screenWidth) / 1920.0;
 +    absoluteY += event.y * static_cast<double>(screenHeight) / 1080.0;
 +    clampAbsolute();
 +    absoluteWheel += event.wheel;
 +    absoluteTilt += event.tilt;
 +    if (event.resetButtons) { buttons = 0; latchedButtons = 0; }
-+    if (event.button != 0) {
+     if (event.button != 0) {
+-        if (event.pressed) buttons |= event.button;
 +        if (event.pressed) { buttons |= event.button; latchedButtons |= event.button; }
-+        else buttons &= ~event.button;
-+    }
+         else buttons &= ~event.button;
+     }
+     MouseData data{};
 diff --git a/core/libs/prx/libSceMouse/tests/Mouse.cpp b/core/libs/prx/libSceMouse/tests/Mouse.cpp
-index e01f3f9b4..4e642496f 100644
+index e01f3f9..4e64249 100644
 --- a/core/libs/prx/libSceMouse/tests/Mouse.cpp
 +++ b/core/libs/prx/libSceMouse/tests/Mouse.cpp
 @@ -11,6 +11,10 @@ int APS5_VABI sceMouseInit();
@@ -284,8 +325,94 @@ index e01f3f9b4..4e642496f 100644
      event = {};
      event.type = SDL_MOUSEBUTTONDOWN;
      event.button.windowID = 7;
+diff --git a/core/libs/prx/libc/include/GuestAllocations.hpp b/core/libs/prx/libc/include/GuestAllocations.hpp
+index fca6f00..b451b35 100644
+--- a/core/libs/prx/libc/include/GuestAllocations.hpp
++++ b/core/libs/prx/libc/include/GuestAllocations.hpp
+@@ -25,6 +25,10 @@ using Lease = std::vector<std::shared_ptr<const Range>>;
+ using Mapped = std::vector<std::weak_ptr<const Range>>;
+ 
+ extern "C" {
++#if defined(__clang__)
++#pragma clang diagnostic push
++#pragma clang diagnostic ignored "-Wreturn-type-c-linkage"
++#endif
+ void* GuestAllocationsBegin_nid_postfix();
+ void GuestAllocationsRegisterMainImage_nid_postfix(void* mutation);
+ #ifdef _WIN32
+@@ -63,6 +67,9 @@ void GuestAllocationsInvalidate_nid_postfix(std::uintptr_t address, std::size_t
+ void GuestAllocationsSetPinWaiter_nid_postfix(bool (*callback)(std::uintptr_t address, std::size_t bytes));
+ void GuestAllocationsSetGpuMapObserver_nid_postfix(void (*callback)(const Mapped& ranges, std::uint64_t generation));
+ void GuestAllocationsNoteGpuMapping_nid_postfix(void* mutation, const void* pointer, std::size_t bytes);
++#if defined(__clang__)
++#pragma clang diagnostic pop
++#endif
+ }
+ 
+ class Mutation {
+diff --git a/core/libs/prx/libc/include/Shutdown.hpp b/core/libs/prx/libc/include/Shutdown.hpp
+index a7618a0..6cc4704 100644
+--- a/core/libs/prx/libc/include/Shutdown.hpp
++++ b/core/libs/prx/libc/include/Shutdown.hpp
+@@ -1,10 +1,22 @@
+ #ifndef CORE_LIBS_PRX_LIBC_INCLUDE_SHUTDOWN_HPP
+ #define CORE_LIBS_PRX_LIBC_INCLUDE_SHUTDOWN_HPP
+ 
++#if defined(__clang__)
++#undef _LIBCPP_HAS_NO_EXPERIMENTAL_STOP_TOKEN
++#ifndef _LIBCPP_ENABLE_EXPERIMENTAL
++#define _LIBCPP_ENABLE_EXPERIMENTAL 1
++#endif
++#endif
++
+ #include <stop_token>
+ 
+ class ProcessShutdown final {};
+ 
++#if defined(__clang__)
++#pragma clang diagnostic push
++#pragma clang diagnostic ignored "-Wreturn-type-c-linkage"
++#endif
++
+ extern "C" void LibcRegisterShutdown_nid_postfix(void (*callback)());
+ extern "C" void LibcRunShutdown_nid_postfix();
+ extern "C" std::stop_token LibcShutdownToken_nid_postfix();
+@@ -14,4 +26,8 @@ extern "C" [[noreturn]] void LibcAwaitExit_nid_postfix();
+ extern "C" [[noreturn]] void LibcExit_nid_no_patch(int code);
+ extern "C" [[noreturn]] void LibcTerminate_nid_no_patch(int code);
+ 
++#if defined(__clang__)
++#pragma clang diagnostic pop
++#endif
++
+ #endif
+diff --git a/core/libs/prx/libkernel/Equeue/Equeue.hpp b/core/libs/prx/libkernel/Equeue/Equeue.hpp
+index 4bba326..41232e5 100644
+--- a/core/libs/prx/libkernel/Equeue/Equeue.hpp
++++ b/core/libs/prx/libkernel/Equeue/Equeue.hpp
+@@ -95,6 +95,10 @@ private:
+ using KernelEqueueRef = std::shared_ptr<KernelEqueuePrivate>;
+ void EqueueDescriptorClosed(int descriptor);
+ extern "C" {
++#if defined(__clang__)
++#pragma clang diagnostic push
++#pragma clang diagnostic ignored "-Wreturn-type-c-linkage"
++#endif
+ 
+ KernelEqueueRef EqueuePin_nid_postfix(KernelEqueue eq);
+ int APS5_VABI EqueueAddEvent_nid_postfix(KernelEqueue eq, const KernelEqueueEvent& event);
+@@ -103,6 +107,9 @@ int APS5_VABI EqueueDeleteEvent_nid_postfix(KernelEqueue eq, uintptr_t ident, in
+ // Ставит событие в очередь pendingEvents. Колбэки фильтров из нативной группы (Android: libc++)
+ // не могут трогать std::deque x86-ядра (libstdc++) напрямую.
+ void APS5_VABI EqueuePushPending_nid_postfix(KernelEqueueEvent* event, const KernelEvent* pending);
++#if defined(__clang__)
++#pragma clang diagnostic pop
++#endif
+ 
+ }
+ 
 diff --git a/docs/dev/TechnicalDebt.md b/docs/dev/TechnicalDebt.md
-index 542edd980..7eefcac39 100644
+index 542edd9..7eefcac 100644
 --- a/docs/dev/TechnicalDebt.md
 +++ b/docs/dev/TechnicalDebt.md
 @@ -39,6 +39,7 @@ Throughout the project, every function at every stage either **does exactly what

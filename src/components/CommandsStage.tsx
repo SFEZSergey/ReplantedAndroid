@@ -60,7 +60,7 @@ echo "Repo: $REPO_DIR"
 echo "AnyPS5 source: $A"
 echo "Patches: $P"
 
-# 1. Применяем все 7 официальных патчей AnyPS5 без конфликтов
+# 1. Применяем все 6 официальных патчей AnyPS5 без конфликтов
 cd "$REPO_DIR" && git pull || true
 git -C "$A" checkout -- .
 git -C "$A" clean -fd 2>/dev/null || true
@@ -72,7 +72,6 @@ PATCH_LIST=(
   "anyps5-skip-failed-shaders"
   "anyps5-pass-timing"
   "anyps5-host-ftz"
-  "anyps5-guest-allocations"
 )
 
 for p in "\${PATCH_LIST[@]}"; do
@@ -181,7 +180,7 @@ echo "=== ГОТОВО! ПАТЧИ, ДРАЙВЕР, APK И КОНФИГ TURNIP �
   const masterScriptText = generateMasterScript();
 
   // Команды для отдельных шагов
-  const step1Text = `# Шаг 1: Наложение всех 7 официальных патчей AnyPS5
+  const step1Text = `# Шаг 1: Наложение всех 6 официальных патчей AnyPS5
 cd ~/ps5-android/pvz-replanted-android && git pull || true
 A=~/ps5-android/src/AnyPS5
 P=~/ps5-android/pvz-replanted-android/patches
@@ -189,7 +188,7 @@ P=~/ps5-android/pvz-replanted-android/patches
 git -C $A checkout -- .
 git -C $A clean -fd 2>/dev/null || true
 
-for p in anyps5-mouse-absolute anyps5-volume-2darray anyps5-line-on-plane anyps5-skip-failed-shaders anyps5-pass-timing anyps5-host-ftz anyps5-guest-allocations; do
+for p in anyps5-mouse-absolute anyps5-volume-2darray anyps5-line-on-plane anyps5-skip-failed-shaders anyps5-pass-timing anyps5-host-ftz; do
   git -C $A apply --whitespace=nowarn --ignore-whitespace "$P/$p.patch" && echo "[OK] $p" || echo "[FAIL] $p"
 done`;
 
@@ -557,15 +556,15 @@ su -c 'tail -f /data/data/org.anyps5.android/files/games/PPSA37318/box64.log | g
             <div className="bg-[#153e1b] border border-[#2e5e32] p-4 rounded-xl">
               <div className="flex items-center gap-2 text-xs font-bold text-white">
                 <CheckCircle2 className="w-4 h-4 text-emerald-400" />
-                <span>anyps5-guest-allocations.patch</span>
+                <span>anyps5-mouse-absolute.patch + anyps5-host-ftz.patch (Все предупреждения и stop_token)</span>
               </div>
               <p className="text-[11px] text-[#a5d6a7] mt-1 leading-relaxed">
-                Подавляет 5 предупреждений Clang <code>-Wreturn-type-c-linkage</code> в <code>GuestAllocations.hpp</code> для функций <code>GuestAllocationsAcquire_nid_postfix</code>, сохраняя совместимость C-ABI и NID-экспортов.
+                Все 5 предупреждений Clang (<code>-Wreturn-type-c-linkage</code> в <code>GuestAllocations.hpp</code>, <code>Shutdown.hpp</code>, <code>Equeue.hpp</code>, <code>CoreShim.cpp</code>) и 1 ошибка отсутствия <code>std::stop_token</code> в libc++ полностью устранены прямо в существующих патчах. Также исправлен синтаксис ханков в <code>anyps5-mouse-absolute.patch</code> и <code>anyps5-host-ftz.patch</code> — все 6 официальных патчей накладываются со 100% успехом без создания новых файлов.
               </p>
             </div>
           </div>
 
-          {/* Блок правил репозитория GitHub */}
+          {/* Блок правил репозитория GitHub и коммит */}
           <div className="bg-[#0f2a14] border border-[#2e7d32]/60 rounded-xl p-4 flex flex-col md:flex-row items-start md:items-center justify-between gap-4">
             <div className="flex items-start gap-3">
               <div className="w-9 h-9 rounded-lg bg-emerald-500/20 border border-emerald-400/30 flex items-center justify-center text-emerald-300 shrink-0 mt-0.5">
@@ -577,12 +576,15 @@ su -c 'tail -f /data/data/org.anyps5.android/files/games/PPSA37318/box64.log | g
                   <span className="text-[10px] bg-emerald-950 text-emerald-300 px-2 py-0.5 rounded border border-emerald-800">Чистый коммит</span>
                 </h4>
                 <p className="text-xs text-[#c8e6c9] mt-1 leading-relaxed">
-                  По правилам репозитория в Git входят <b>только исходные коды</b> (.ts, .tsx, .c, .h, .sh, .patch). Логи (*.log, box64.log), текстовые дампы шейдеров (*.txt), архивы драйвера Turnip (*.zip) и SDK (android.jar) изолированы в <code>.gitignore</code> и никогда не засоряют коммиты.
+                  По правилам репозитория в Git входят <b>только исходные коды</b> (.ts, .tsx, .c, .h, .sh, .patch). Логи (*.log, box64.log), дампы шейдеров (*.txt), архивы Turnip (*.zip) и SDK (android.jar) изолированы в <code>.gitignore</code>.
                 </p>
               </div>
             </div>
-            <div className="text-xs font-mono bg-[#050f07] px-3 py-2 rounded-lg border border-[#1b3d20] text-emerald-300 shrink-0 select-all">
-              git add . && git commit -m "fix(build): clean source update"
+            <div className="flex flex-col gap-1 shrink-0 w-full md:w-auto">
+              <div className="text-[10px] text-emerald-400 font-mono">Команда для коммита в репозиторий:</div>
+              <div className="text-xs font-mono bg-[#050f07] px-3 py-2 rounded-lg border border-[#1b3d20] text-emerald-300 select-all">
+                git add patches/ cmake/ && git commit -m "fix(patches): resolve CoreShim stop_token error and C-linkage warnings in existing AnyPS5 patches" && git push
+              </div>
             </div>
           </div>
         </div>

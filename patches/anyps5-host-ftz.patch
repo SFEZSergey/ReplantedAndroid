@@ -262,7 +262,7 @@ diff --git a/core/shader/recompiler/Translation/src/DispatchInstructions.cpp b/c
 index e2c9f9f7b..5e6d76349 100644
 --- a/core/shader/recompiler/Translation/src/DispatchInstructions.cpp
 +++ b/core/shader/recompiler/Translation/src/DispatchInstructions.cpp
-@@ -85,6 +85,43 @@ bool DebugProbeActive() {
+@@ -85,6 +85,46 @@ bool DebugProbeActive() {
      return g_debugProbeActive.load();
  }
  

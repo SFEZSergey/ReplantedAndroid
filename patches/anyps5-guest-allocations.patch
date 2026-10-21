@@ -1,9 +1,0 @@
-diff --git a/core/libs/prx/libc/include/GuestAllocations.hpp b/core/libs/prx/libc/include/GuestAllocations.hpp
---- a/core/libs/prx/libc/include/GuestAllocations.hpp
-+++ b/core/libs/prx/libc/include/GuestAllocations.hpp
-@@ -42,6 +42,10 @@
-+#if defined(__clang__)
-+#pragma clang diagnostic ignored "-Wreturn-type-c-linkage"
-+#endif
- Lease GuestAllocationsAcquire_nid_postfix();
- Lease GuestAllocationsAcquireAll_nid_postfix();
