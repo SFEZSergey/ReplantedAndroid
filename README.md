@@ -89,6 +89,13 @@ wrapper: the APK launcher (Java), the native entry point `sdl_main.c` and the bi
 | `external/box64` | submodule (C) — box64 fork, branch `android` (box64 as a library inside the APK, glibc compatibility on top of bionic, signals, DynaCache) |
 | `patches/mesa-26.3-android.patch` | Turnip: host-memory import through KGSL, linear gralloc swapchain buffers |
 | `patches/sdl2-android-udev-once.patch` | SDL2 (an AnyPS5 submodule) |
+| `patches/box64-android-hwcap.patch` | box64: CPU extensions (LSE atomics, FLAGM, FRINT, CRC32…) read through bionic's `getauxval`; without it the dynarec in the app saw ASIMD only |
+| `patches/anyps5-mouse-absolute.patch` | AnyPS5: the PS5 mouse absolute-position mode: the host's motion moves a cursor over the game's virtual screen and `sceMouseReadAbsolutePosition` returns it with the buttons and wheel (Mewgenics, PPSA37318, reads the mouse only this way) |
+| `patches/anyps5-volume-2darray.patch` | AnyPS5: upstream commit 945b970 (2D-array image loads and stores on 3D textures), which Mewgenics needs; code only |
+| `patches/anyps5-line-on-plane.patch` | AnyPS5: 1D image loads and stores on 2D and 2D-array textures (the missing row and slice are zero); Mewgenics reads a 9100x1 2D-array line this way in dozens of draws per frame |
+| `patches/anyps5-skip-failed-shaders.patch` | AnyPS5: `APS5_SKIP_FAILED_SHADERS` (on by default in the APK) leaves out a draw or dispatch whose shader is unsupported instead of ending the game, as upstream does |
+| `patches/anyps5-pass-timing.patch` | AnyPS5: with `APS5_PROFILE_GPU=1` the `[gputime]` report also splits the draw time by render pass (extent, color targets, fragment program) and describes each pass once |
+| `patches/anyps5-host-ftz.patch` | AnyPS5 shaders on Adreno: DPP quad_perm moves use the GPU's native quad operations instead of a shuffle by a per-lane index (a loop in Turnip; `APS5_NO_QUAD_DPP=1` keeps it); host float semantics (on by default in the APK, `=0` turns each off): `APS5_HOST_FTZ=1` leaves f32 denormals to the GPU's own flush, `APS5_HOST_NAN=1` keeps the host's NaN results, uses NMin/NMax and drops the f32 SignedZeroInfNanPreserve mode, `APS5_HOST_DPP=1` reads DPP sources without the per-move ballot, `APS5_HOST_FMA=1` lets the GPU contract multiply-add into one instruction |
 | `cmake/` | CMake toolchain files (bionic arm64 and x86-64 glibc), Meson cross file for Mesa, `box64-emu.sh` |
 | `compat/` | compatibility headers (ndk-shim, box64-android-compat) |
 
@@ -102,6 +109,12 @@ by default (every path can be overridden with environment variables, see the top
 git clone --recursive https://github.com/SFEZSergey/ReplantedAndroid
 cd ReplantedAndroid
 git -C external/AnyPS5/3rdparty/SDL2 apply ../../../../patches/sdl2-android-udev-once.patch
+git -C external/AnyPS5 apply ../../patches/anyps5-mouse-absolute.patch
+git -C external/AnyPS5 apply ../../patches/anyps5-volume-2darray.patch
+git -C external/AnyPS5 apply ../../patches/anyps5-line-on-plane.patch
+git -C external/AnyPS5 apply ../../patches/anyps5-skip-failed-shaders.patch
+git -C external/AnyPS5 apply ../../patches/anyps5-pass-timing.patch
+git -C external/AnyPS5 apply ../../patches/anyps5-host-ftz.patch
 ```
 
 1. **AnyPS5, native group (bionic arm64)** → `external/AnyPS5/build-bionic`:
@@ -110,7 +123,7 @@ git -C external/AnyPS5/3rdparty/SDL2 apply ../../../../patches/sdl2-android-udev
 2. **AnyPS5, x86-64 PS5 libraries (PRX)** → `external/AnyPS5/build-x64s`: the same source with
    `cmake/x86_64-linux-gnu.cmake`; needs a Debian/Ubuntu x86-64 sysroot (`PVZ_SYSROOT_X86_64`) and box64 to
    run the x86 build tools (`PVZ_BOX64`, see `cmake/box64-emu.sh`).
-3. **box64** → `external/box64/build-lib`: `-DTERMUX=1 -DARM_DYNAREC=1 -DBOX64_SHARED_LIB=ON
+3. **box64** (with `git -C external/box64 apply ../../patches/box64-android-hwcap.patch`) → `external/box64/build-lib`: `-DTERMUX=1 -DARM_DYNAREC=1 -DBOX64_SHARED_LIB=ON
    -DCMAKE_BUILD_TYPE=RelWithDebInfo -DCMAKE_C_FLAGS="--target=aarch64-linux-android30 -fPIC -I$PWD/compat/box64-android-compat"`.
 4. **Mesa 26.3 (Turnip)**: the Mesa `26.3` branch + `patches/mesa-26.3-android.patch`, meson with
    `--cross-file cmake/mesa-android-cross.ini -Dbuildtype=release -Dvulkan-drivers=freedreno -Dgallium-drivers= -Dfreedreno-kmds=kgsl -Dplatforms=android -Dandroid-stub=true -Dandroid-libbacktrace=disabled -Dglx=disabled -Degl=disabled -Dgles1=disabled -Dgles2=disabled -Dopengl=false -Dllvm=disabled -Dzlib=enabled`

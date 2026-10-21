@@ -44,27 +44,39 @@ public final class MainActivity extends Activity {
 
     @Override public void onCreate(Bundle state) {
         super.onCreate(state);
-        getWindow().getDecorView().setSystemUiVisibility(View.SYSTEM_UI_FLAG_FULLSCREEN | View.SYSTEM_UI_FLAG_HIDE_NAVIGATION | View.SYSTEM_UI_FLAG_IMMERSIVE_STICKY | View.SYSTEM_UI_FLAG_LAYOUT_STABLE);
-        // Хаб порта PvZ: Replanted: слева иконка, справа заголовок, статус, «Играть», папка дампа, настройки.
+        // Как в теме Theme.Replanted (на случай, если тема не подхвачена): окно и под вырезом камеры.
+        if (android.os.Build.VERSION.SDK_INT >= 28) {
+            android.view.WindowManager.LayoutParams attributes = getWindow().getAttributes();
+            attributes.layoutInDisplayCutoutMode = android.os.Build.VERSION.SDK_INT >= 30 ? android.view.WindowManager.LayoutParams.LAYOUT_IN_DISPLAY_CUTOUT_MODE_ALWAYS : android.view.WindowManager.LayoutParams.LAYOUT_IN_DISPLAY_CUTOUT_MODE_SHORT_EDGES;
+            getWindow().setAttributes(attributes);
+        }
+        hideSystemBars();
+        migrateLibrary();
+        // Хаб: слева иконка выбранной игры, справа её название, статус, «Играть», библиотека игр, настройки.
         final float dp = getResources().getDisplayMetrics().density;
         LinearLayout root = new LinearLayout(this);
         root.setOrientation(LinearLayout.HORIZONTAL); root.setGravity(Gravity.CENTER); root.setPadding((int)(24*dp), (int)(12*dp), (int)(24*dp), (int)(12*dp));
         root.setBackground(new android.graphics.drawable.GradientDrawable(android.graphics.drawable.GradientDrawable.Orientation.TL_BR, new int[] {0xff1e4620, 0xff0f2a14}));
         android.widget.ImageView icon = new android.widget.ImageView(this);
-        icon.setImageDrawable(getApplicationInfo().loadIcon(getPackageManager()));
+        android.graphics.Bitmap gameIcon = null;
+        for (String path : new String[] {"sce_sys/icon0.png", "app0/sce_sys/icon0.png"}) {
+            File file = new File(activeGame(), path);
+            if (gameIcon == null && file.isFile()) gameIcon = android.graphics.BitmapFactory.decodeFile(file.getAbsolutePath());
+        }
+        if (gameIcon != null) icon.setImageBitmap(gameIcon); else icon.setImageDrawable(getApplicationInfo().loadIcon(getPackageManager()));
         LinearLayout.LayoutParams iconSize = new LinearLayout.LayoutParams((int)(112*dp), (int)(112*dp)); iconSize.rightMargin = (int)(24*dp);
         root.addView(icon, iconSize);
         LinearLayout panel = new LinearLayout(this); panel.setOrientation(LinearLayout.VERTICAL); panel.setGravity(Gravity.CENTER_VERTICAL);
-        TextView title = new TextView(this); title.setText("PvZ: Replanted"); title.setTextColor(0xfff1f8e9); title.setTextSize(28); title.setTypeface(android.graphics.Typeface.DEFAULT_BOLD); panel.addView(title);
-        TextView subtitle = new TextView(this); subtitle.setText(t("Порт с PS5 · AnyPS5 + box64 + Turnip", "PS5 port · AnyPS5 + box64 + Turnip")); subtitle.setTextColor(0xffa5d6a7); subtitle.setTextSize(12); panel.addView(subtitle);
+        TextView title = new TextView(this); String gameName = readTitleName(activeGame()); title.setText(gameName != null ? gameName : (activeId() != null ? activeId() : "AnyPS5")); title.setTextColor(0xfff1f8e9); title.setTextSize(28); title.setTypeface(android.graphics.Typeface.DEFAULT_BOLD); panel.addView(title);
+        TextView subtitle = new TextView(this); subtitle.setText((activeId() != null ? activeId() + " · " : "") + t("PS5 · AnyPS5 + box64 + Turnip", "PS5 · AnyPS5 + box64 + Turnip")); subtitle.setTextColor(0xffa5d6a7); subtitle.setTextSize(12); panel.addView(subtitle);
         status = new TextView(this); status.setTextColor(0xffdcedc8); status.setTextSize(13); status.setPadding(0, (int)(8*dp), 0, (int)(8*dp)); panel.addView(status);
         LinearLayout actions = new LinearLayout(this); actions.setOrientation(LinearLayout.HORIZONTAL); actions.setGravity(Gravity.CENTER_VERTICAL);
-        start = new Button(this); start.setText(t("Импорт и запуск", "Import and play")); styleButton(start, 0xff43a047, 18);
-        start.setOnClickListener(new View.OnClickListener() { @Override public void onClick(View v) { importAndStart(); } });
+        start = new Button(this); start.setText(t("Играть", "Play")); styleButton(start, 0xff43a047, 18);
+        start.setOnClickListener(new View.OnClickListener() { @Override public void onClick(View v) { importAndStart(false); } });
         LinearLayout.LayoutParams startSize = new LinearLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT); startSize.rightMargin = (int)(12*dp);
         actions.addView(start, startSize);
-        Button choose = new Button(this); choose.setText(t("Папка дампа", "Dump folder")); styleButton(choose, 0xff2e5e32, 14);
-        choose.setOnClickListener(new View.OnClickListener() { @Override public void onClick(View v) { chooseDirectory(); } }); actions.addView(choose);
+        Button library = new Button(this); library.setText(t("🎮 Игры", "🎮 Games")); styleButton(library, 0xff2e5e32, 14);
+        library.setOnClickListener(new View.OnClickListener() { @Override public void onClick(View v) { showLibrary(); } }); actions.addView(library);
         Button settings = new Button(this); settings.setText(t("⚙ Настройки", "⚙ Settings")); styleButton(settings, 0xff2e5e32, 14);
         settings.setOnClickListener(new View.OnClickListener() { @Override public void onClick(View v) { showSettings(true); } });
         LinearLayout.LayoutParams settingsSize = new LinearLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT); settingsSize.leftMargin = (int)(12*dp);
@@ -73,6 +85,7 @@ public final class MainActivity extends Activity {
         root.addView(panel);
         homeView = root;
         settingsView = buildSettings();
+        keepOutOfCutout(homeView); keepOutOfCutout(settingsView);
         loadBackground();
         showSettings(state != null && state.getBoolean("settings", false));
         showStatus();
@@ -83,7 +96,32 @@ public final class MainActivity extends Activity {
             setShowWhenLocked(true);
             setTurnScreenOn(true);
         }
-        if (state == null && autopilot && getIntent().getBooleanExtra("autostart", false) && start.isEnabled()) importAndStart();
+        if (state == null && autopilot && getIntent().getBooleanExtra("autostart", false) && start.isEnabled()) importAndStart(false);
+    }
+
+    @Override public void onWindowFocusChanged(boolean hasFocus) {
+        super.onWindowFocusChanged(hasFocus);
+        if (hasFocus) hideSystemBars();
+    }
+
+    // Лаунчер во весь экран телефона, как и игра: строка состояния и навигация скрыты, окно заходит под вырез камеры
+    // (тема Theme.Replanted), фон рисуется до краёв панели.
+    private void hideSystemBars() {
+        getWindow().getDecorView().setSystemUiVisibility(
+            View.SYSTEM_UI_FLAG_IMMERSIVE_STICKY | View.SYSTEM_UI_FLAG_FULLSCREEN | View.SYSTEM_UI_FLAG_HIDE_NAVIGATION
+            | View.SYSTEM_UI_FLAG_LAYOUT_STABLE | View.SYSTEM_UI_FLAG_LAYOUT_FULLSCREEN | View.SYSTEM_UI_FLAG_LAYOUT_HIDE_NAVIGATION);
+    }
+
+    // Кнопки и текст не под вырезом: к собственным отступам вида добавляется безопасная зона выреза.
+    private static void keepOutOfCutout(final View view) {
+        if (android.os.Build.VERSION.SDK_INT < 28) return;
+        final int left = view.getPaddingLeft(), top = view.getPaddingTop(), right = view.getPaddingRight(), bottom = view.getPaddingBottom();
+        view.setOnApplyWindowInsetsListener(new View.OnApplyWindowInsetsListener() { @Override public android.view.WindowInsets onApplyWindowInsets(View v, android.view.WindowInsets insets) {
+            android.view.DisplayCutout cutout = insets.getDisplayCutout();
+            if (cutout == null) v.setPadding(left, top, right, bottom);
+            else v.setPadding(left + cutout.getSafeInsetLeft(), top + cutout.getSafeInsetTop(), right + cutout.getSafeInsetRight(), bottom + cutout.getSafeInsetBottom());
+            return insets;
+        } });
     }
 
     // ---- Фон: размытая обложка игры (sce_sys/pic0.png из импортированного дампа; до импорта — иконка). ----
@@ -257,6 +295,10 @@ public final class MainActivity extends Activity {
         CheckBox touchBox = option("", touch.getBoolean("visible", !TouchControlsView.hasPhysicalGamepad()));
         touchBox.setOnCheckedChangeListener(new CompoundButton.OnCheckedChangeListener() { @Override public void onCheckedChanged(CompoundButton b, boolean on) { touch.edit().putBoolean("visible", on).apply(); } });
         row(list, t("Сенсорное управление", "Touch controls"), touchBox);
+        CheckBox mouseBox = option("", touch.getBoolean("mouse", false));
+        mouseBox.setOnCheckedChangeListener(new CompoundButton.OnCheckedChangeListener() { @Override public void onCheckedChanged(CompoundButton b, boolean on) { touch.edit().putBoolean("mouse", on).apply(); } });
+        row(list, t("Касания — мышь (как тачпад): ведите пальцем мимо кнопок, тап — клик, двумя пальцами — правый клик, удержание и ведение — перетаскивание",
+            "Touch as a mouse (like a touchpad): slide a finger away from the buttons, tap to click, two-finger tap to right-click, hold and slide to drag"), mouseBox);
         Button editLayout = new Button(this); editLayout.setText(t("Изменить…", "Edit…"));
         editLayout.setOnClickListener(new View.OnClickListener() { @Override public void onClick(View v) { startActivity(new Intent(MainActivity.this, TouchLayoutActivity.class)); } });
         row(list, t("Раскладка: положение, размер, кнопки, правый стик", "Layout: position, size, buttons, right stick"), editLayout);
@@ -574,8 +616,9 @@ public final class MainActivity extends Activity {
         return box;
     }
 
-    // Настройки хаба — <game>/launcher.env (NAME=1), libmain читает его до env.txt.
-    private File launcherEnv() { return new File(new File(getFilesDir(), "game"), "launcher.env"); }
+    // Настройки хаба — files/launcher.env (NAME=1), общие для всех игр; в папке каждой игры — ссылка launcher.env на
+    // него: libmain читает <game>/launcher.env до env.txt.
+    private File launcherEnv() { return new File(getFilesDir(), "launcher.env"); }
     private String launcherValue(String name) {
         try { for (String line : Files.readAllLines(launcherEnv().toPath())) if (line.startsWith(name + "=")) return line.substring(name.length() + 1); } catch (Exception ignored) {}
         return null;
@@ -610,17 +653,124 @@ public final class MainActivity extends Activity {
 
     private String selectedTree() { return getPreferences(MODE_PRIVATE).getString("game_tree", null); }
     private void showStatus() {
-        String saved = selectedTree();
-        File gameDir = new File(getFilesDir(), "game");
+        File gameDir = activeGame();
         if (new File(gameDir, "app.elf").isFile() && new File(gameDir, "libs").isDirectory()) {
             status.setText(t("Игра готова", "Game is ready") + "\n" + runtimeStatus());
             start.setText(t("Играть", "Play")); start.setEnabled(true); return;
         }
-        boolean dumpReady = new File(gameDir, "eboot.bin").isFile();
-        String source = dumpReady ? t("Дамп уже в папке игры; копировать заново не нужно", "The dump is already in the game folder; no copy needed") :
-                (saved == null ? t("Выберите папку дампа (где лежит eboot.bin)", "Pick the dump folder (the one with eboot.bin)") : t("Папка: ", "Folder: ") + Uri.parse(saved).getLastPathSegment());
-        status.setText(source + "\n" + runtimeStatus());
-        start.setEnabled(dumpReady || saved != null);
+        if (new File(gameDir, "eboot.bin").isFile()) {
+            status.setText(t("Дамп скопирован, подготовка не закончена", "The dump is copied, preparation is not finished") + "\n" + runtimeStatus());
+            start.setText(t("Продолжить импорт", "Continue the import")); start.setEnabled(true); return;
+        }
+        status.setText(t("Игр пока нет: «Игры» → «Добавить игру» и папка дампа (где лежит eboot.bin)", "No games yet: Games → Add a game, then the dump folder (the one with eboot.bin)") + "\n" + runtimeStatus());
+        start.setText(t("Играть", "Play")); start.setEnabled(false);
+    }
+
+    // ---- Библиотека игр: files/games/<ID игры>, files/game — ссылка на выбранную (её и запускает GameActivity). ----
+    private File gamesDir() { return new File(getFilesDir(), "games"); }
+    private File activeGame() { return new File(getFilesDir(), "game"); }
+    private String activeId() {
+        try { return Files.readSymbolicLink(activeGame().toPath()).getFileName().toString(); } catch (Exception e) { return null; }
+    }
+    private static JSONObject readParam(File dir) {
+        for (String path : new String[] {"sce_sys/param.json", "app0/sce_sys/param.json", "dump/sce_sys/param.json"}) {
+            try { return new JSONObject(new String(Files.readAllBytes(new File(dir, path).toPath()), "UTF-8")); } catch (Exception ignored) {}
+        }
+        return null;
+    }
+    private static String readTitleId(File dir) {
+        JSONObject param = readParam(dir);
+        String id = param == null ? "" : param.optString("titleId", "").replaceAll("[^A-Za-z0-9_-]", "");
+        return id.isEmpty() ? null : id;
+    }
+    // Название игры: titleName языка по умолчанию из localizedParameters.
+    private static String readTitleName(File dir) {
+        JSONObject param = readParam(dir);
+        JSONObject localized = param == null ? null : param.optJSONObject("localizedParameters");
+        if (localized == null) return null;
+        JSONObject language = localized.optJSONObject(localized.optString("defaultLanguage", "en-US"));
+        if (language == null) language = localized.optJSONObject("en-US");
+        String name = language == null ? "" : language.optString("titleName", "").trim();
+        return name.isEmpty() ? null : name;
+    }
+    private java.util.List<File> games() {
+        java.util.List<File> list = new java.util.ArrayList<>();
+        File[] entries = gamesDir().listFiles();
+        if (entries != null) for (File entry : entries) if (!entry.getName().startsWith(".") && entry.isDirectory()) list.add(entry);
+        java.util.Collections.sort(list);
+        return list;
+    }
+    private void activate(String id) throws Exception {
+        File link = activeGame();
+        if (Files.exists(link.toPath(), java.nio.file.LinkOption.NOFOLLOW_LINKS) && !Files.isSymbolicLink(link.toPath())) throw new Exception("files/game не является ссылкой");
+        Files.deleteIfExists(link.toPath());
+        if (id == null) return;
+        Os.symlink("games/" + id, link.getAbsolutePath());
+        File env = new File(new File(gamesDir(), id), "launcher.env");
+        if (!Files.isSymbolicLink(env.toPath())) { Files.deleteIfExists(env.toPath()); Os.symlink("../../launcher.env", env.getAbsolutePath()); }
+    }
+    // Раньше игра лежала прямо в files/game: она переезжает в files/games/<ID> (относительные ссылки внутри остаются
+    // верными), её launcher.env становится общим.
+    private void migrateLibrary() {
+        File old = activeGame();
+        if (Files.isSymbolicLink(old.toPath()) || !old.isDirectory()) return;
+        try {
+            File env = new File(old, "launcher.env");
+            if (env.isFile() && !launcherEnv().exists()) Files.move(env.toPath(), launcherEnv().toPath()); else Files.deleteIfExists(env.toPath());
+            String[] rest = old.list();
+            if (rest == null || rest.length == 0) { old.delete(); return; }
+            String id = readTitleId(old); if (id == null) id = "game";
+            gamesDir().mkdirs();
+            File target = new File(gamesDir(), id);
+            if (target.exists()) clearDirectory(target);
+            Files.move(old.toPath(), target.toPath());
+            activate(id);
+        } catch (Exception e) { notice(t("Не удалось перенести игру в библиотеку: ", "Could not move the game into the library: ") + e.getMessage()); }
+    }
+    private boolean refreshOnReturn;
+    @Override protected void onRestart() {
+        super.onRestart();
+        if (refreshOnReturn) { refreshOnReturn = false; recreate(); }
+    }
+    private void showLibrary() {
+        final java.util.List<File> list = games();
+        final String active = activeId();
+        AlertDialog.Builder dialog = new AlertDialog.Builder(this).setTitle(t("Игры", "Games"));
+        if (list.isEmpty()) dialog.setMessage(t("Игр пока нет. Добавьте расшифрованный дамп игры PS5 — папку, где лежит eboot.bin.", "No games yet. Add a decrypted PS5 game dump: the folder with eboot.bin."));
+        else {
+            String[] labels = new String[list.size()];
+            for (int i = 0; i < labels.length; i++) {
+                String name = readTitleName(list.get(i));
+                labels[i] = (list.get(i).getName().equals(active) ? "✓ " : "    ") + (name != null ? name + "  ·  " : "") + list.get(i).getName();
+            }
+            dialog.setItems(labels, new DialogInterface.OnClickListener() { @Override public void onClick(DialogInterface d, int which) { gameActions(list.get(which)); } });
+        }
+        dialog.setPositiveButton(t("+ Добавить игру", "+ Add a game"), new DialogInterface.OnClickListener() { @Override public void onClick(DialogInterface d, int w) { chooseDirectory(); } })
+            .setNegativeButton(t("Закрыть", "Close"), null).show();
+    }
+    private void gameActions(final File dir) {
+        String name = readTitleName(dir);
+        new AlertDialog.Builder(this).setTitle(name != null ? name : dir.getName())
+            .setItems(new String[] {t("Выбрать", "Select"), t("Удалить из приложения", "Remove from the app")}, new DialogInterface.OnClickListener() { @Override public void onClick(DialogInterface d, int which) {
+                if (which == 0) {
+                    try { activate(dir.getName()); } catch (Exception e) { notice(t("Не удалось выбрать игру: ", "Could not select the game: ") + e.getMessage()); return; }
+                    recreate();
+                } else confirmRemove(dir);
+            } }).show();
+    }
+    private void confirmRemove(final File dir) {
+        new AlertDialog.Builder(this).setTitle(t("Удалить игру?", "Remove the game?"))
+            .setMessage(t("Игра и её сохранения будут удалены из приложения. Дамп на телефоне останется, его можно добавить снова.", "The game and its saves are removed from the app. The dump on the phone stays and can be added again."))
+            .setPositiveButton(t("Удалить", "Remove"), new DialogInterface.OnClickListener() { @Override public void onClick(DialogInterface d, int w) {
+                boolean wasActive = dir.getName().equals(activeId());
+                clearDirectory(dir);
+                if (wasActive) {
+                    java.util.List<File> left = games();
+                    try { activate(left.isEmpty() ? null : left.get(0).getName()); } catch (Exception ignored) {}
+                }
+                recreate();
+            } })
+            .setNegativeButton(t("Отмена", "Cancel"), null).show();
     }
     private void chooseDirectory() {
         Intent i = new Intent(Intent.ACTION_OPEN_DOCUMENT_TREE);
@@ -641,7 +791,8 @@ public final class MainActivity extends Activity {
             Uri uri = data.getData();
             int flags = data.getFlags() & (Intent.FLAG_GRANT_READ_URI_PERMISSION | Intent.FLAG_GRANT_WRITE_URI_PERMISSION);
             getContentResolver().takePersistableUriPermission(uri, flags);
-            getPreferences(MODE_PRIVATE).edit().putString("game_tree", uri.toString()).apply(); showStatus();
+            getPreferences(MODE_PRIVATE).edit().putString("game_tree", uri.toString()).apply();
+            importAndStart(true);
         }
     }
 
@@ -653,9 +804,16 @@ public final class MainActivity extends Activity {
 
     // Размер вывода в альбомной ориентации: экран, уменьшенный до заданной высоты (0 — без уменьшения).
     private String displaySize(int rows) {
-        android.util.DisplayMetrics metrics = new android.util.DisplayMetrics();
-        getWindowManager().getDefaultDisplay().getRealMetrics(metrics);
-        int width = Math.max(metrics.widthPixels, metrics.heightPixels), height = Math.min(metrics.widthPixels, metrics.heightPixels);
+        int width, height;
+        if (android.os.Build.VERSION.SDK_INT >= 30) {
+            // Вся панель, включая вырез (getRealMetrics на новых Android отдаёт область без выреза: 2344 вместо 2400).
+            android.graphics.Rect bounds = getWindowManager().getMaximumWindowMetrics().getBounds();
+            width = Math.max(bounds.width(), bounds.height()); height = Math.min(bounds.width(), bounds.height());
+        } else {
+            android.util.DisplayMetrics metrics = new android.util.DisplayMetrics();
+            getWindowManager().getDefaultDisplay().getRealMetrics(metrics);
+            width = Math.max(metrics.widthPixels, metrics.heightPixels); height = Math.min(metrics.widthPixels, metrics.heightPixels);
+        }
         if (rows > 0 && height > rows) { width = Math.round(width * (float) rows / height / 2) * 2; height = rows; }
         return width + "×" + height;
     }
@@ -682,7 +840,7 @@ public final class MainActivity extends Activity {
             String message;
             try (OutputStream raw = getContentResolver().openOutputStream(target); java.util.zip.ZipOutputStream zip = new java.util.zip.ZipOutputStream(raw)) {
                 File game = new File(getFilesDir(), "game");
-                for (String name : new String[] {"box64.log", "relinker.log", "launcher.env", "env.txt"}) {
+                for (String name : new String[] {"box64.log", "relinker.log", "relinker-modules.log", "relinker.log.to-intel", "launcher.env", "env.txt"}) {
                     File file = new File(game, name);
                     if (file.isFile()) { zip.putNextEntry(new ZipEntry(name)); Files.copy(file.toPath(), zip); zip.closeEntry(); }
                 }
@@ -737,10 +895,15 @@ public final class MainActivity extends Activity {
         return b.toString();
     }
 
-    private void importAndStart() {
+    // fresh — добавить игру из выбранной папки дампа (game_tree); иначе запустить выбранную или доделать её импорт.
+    private void importAndStart(final boolean fresh) {
         final String value = selectedTree();
         final File game = new File(getFilesDir(), "game");
-        if (new File(game, "app.elf").isFile() && new File(game, "libs").isDirectory()) {
+        if (new File(game, "app.elf").isFile() && new File(game, "libs").isDirectory() && new File(game, "eboot.bin").isFile() && (hasUnlinkedGameModules(game) || staleRelinkLayout(game))) {
+            // app.elf собран без модулей игры из Media или по старой раскладке: перелинковка заново из eboot.bin.
+            new File(game, "app.elf").delete();
+        }
+        if (!fresh && new File(game, "app.elf").isFile() && new File(game, "libs").isDirectory()) {
             // Готовая раскладка (app.elf + libs): запуск без импорта, рантайм обновляется после обновления APK.
             start.setEnabled(false);
             status.setText(t("Проверяю рантайм…", "Checking the runtime…"));
@@ -760,24 +923,35 @@ public final class MainActivity extends Activity {
             }}).start();
             return;
         }
-        final boolean dumpAlreadyPresent = new File(game, "eboot.bin").isFile();
-        if (!dumpAlreadyPresent && value == null) return;
+        final boolean dumpAlreadyPresent = !fresh && new File(game, "eboot.bin").isFile();
+        if (!dumpAlreadyPresent && (!fresh || value == null)) return;
         start.setEnabled(false);
         status.setText(dumpAlreadyPresent ? t("Дамп найден в папке игры; использую имеющиеся файлы…", "Dump found in the game folder; using the existing files…") : t("Копирую папку игры… Это может занять несколько минут.", "Copying the game folder… This can take a few minutes."));
         new Thread(new Runnable() { @Override public void run() {
             try {
                 if (!dumpAlreadyPresent) {
-                    // Настройки хаба переживают очистку папки игры.
-                    byte[] settings = null;
-                    try { settings = Files.readAllBytes(launcherEnv().toPath()); } catch (Exception ignored) {}
-                    clearDirectory(game); game.mkdirs();
-                    if (settings != null) Files.write(launcherEnv().toPath(), settings);
+                    // Новая игра: копия в games/.importing, затем games/<ID из param.json> (та же игра заменяется),
+                    // и она становится выбранной (files/game).
+                    File staging = new File(gamesDir(), ".importing");
+                    clearDirectory(staging); staging.mkdirs();
                     // Accept the selected dump directly; if the saved SAF selection is
                     // its parent, import only the immediate child named "dump".
                     Uri tree = Uri.parse(value);
                     String rootId = DocumentsContract.getTreeDocumentId(tree);
                     String dumpId = findDumpDocument(tree, rootId);
-                    copyTree(tree, dumpId == null ? rootId : dumpId, game);
+                    copyTree(tree, dumpId == null ? rootId : dumpId, staging);
+                    if (!new File(staging, "eboot.bin").isFile()) { clearDirectory(staging); throw new Exception(t("В выбранной папке не найден eboot.bin. Выберите сам каталог дампа.", "No eboot.bin in the chosen folder. Pick the dump folder itself.")); }
+                    String id = readTitleId(staging);
+                    if (id == null) id = "game-" + (System.currentTimeMillis() / 1000);
+                    File target = new File(gamesDir(), id);
+                    // Та же игра заново: её сохранения и загруженные данные переходят в новую копию.
+                    for (String kept : new String[] {"_sd", "_sd_mem", "download0"}) {
+                        File old = new File(target, kept), copy = new File(staging, kept);
+                        if (old.exists() && !copy.exists()) Files.move(old.toPath(), copy.toPath());
+                    }
+                    clearDirectory(target);
+                    if (!staging.renameTo(target)) throw new Exception("Не удалось перенести игру в games/" + id);
+                    activate(id);
                 }
                 File self = new File(game, "eboot.bin");
                 if (!self.isFile()) throw new Exception("В выбранной папке не найден eboot.bin. Выбери сам каталог дампа.");
@@ -785,9 +959,11 @@ public final class MainActivity extends Activity {
                 if (!executable.isFile()) {
                     statusOnUi(t("Извлекаю ELF из eboot.bin…", "Extracting the ELF from eboot.bin…"));
                     extractSelf(self, new File(game, "eboot.elf"));
+                    stageGameModules(game);
                     extractSelfModules(game);
                     statusOnUi(t("Запускаю AnyPS5 relinker…", "Running the AnyPS5 relinker…"));
                     runRelinker(game);
+                    Files.write(new File(game, ".relink-layout").toPath(), relinkLayout(game).getBytes());
                 }
                 if (!executable.isFile()) throw new Exception("Relinker завершился, но app.elf не создан");
                 // Repair links even when an earlier import already created app.elf.
@@ -798,10 +974,12 @@ public final class MainActivity extends Activity {
                 copyPackagedRuntime("runtime/x64lib", new File(game, "x64lib"));
                 Files.write(new File(game, ".runtime-stamp").toPath(), Long.toString(getPackageManager().getPackageInfo(getPackageName(), 0).lastUpdateTime).getBytes());
                 runOnUiThread(new Runnable() { @Override public void run() {
+                    // Новая игра — новые название, обложка и языки на главном экране, когда игрок вернётся.
+                    if (fresh) refreshOnReturn = true;
                     applyGameLanguage();
-                        startActivity(new Intent(MainActivity.this, GameActivity.class));
+                    startActivity(new Intent(MainActivity.this, GameActivity.class));
                 }});
-            } catch (final Exception e) {
+            } catch (final Throwable e) {
                 runOnUiThread(new Runnable() { @Override public void run() {
                     status.setText(t("Импорт не удался:\n", "Import failed:\n") + e.getMessage()); start.setEnabled(true);
                 }});
@@ -818,68 +996,246 @@ public final class MainActivity extends Activity {
         InputStream in = new java.io.FileInputStream(f);
         try { return in.read()==0x54 && in.read()==0x14 && in.read()==0xf5 && in.read()==0xee; } finally { in.close(); }
     }
+    // Потоково, без чтения SELF в память: модули игры (Il2cppUserAssemblies.prx ~100 МБ) не помещаются в кучу Java
+    // (256 МБ) вместе с копией образа. Сегменты копируются с диска на диск, нули между ними — разреженный файл.
     private static void extractSelf(File source, File destination) throws Exception {
-        byte[] data = Files.readAllBytes(source.toPath());
-        if (data.length < 0x40 || (u64(data, 0) & 0xffffffffL) != 0xEEF51454L) throw new Exception("eboot.bin не является PS5 SELF");
-        int count=u16(data,0x18); long tableLong=0x20L+(long)count*0x20L;
-        if (tableLong+64>data.length) throw new Exception("Повреждена таблица сегментов SELF");
-        int table=(int)tableLong;
-        if (data[table]!=0x7f || data[table+1]!='E' || data[table+2]!='L' || data[table+3]!='F') throw new Exception("SELF зашифрован: внутри не найден ELF-заголовок");
-        long phoffLong=u64(data,table+32); int phentsize=u16(data,table+54), phnum=u16(data,table+56);
-        if (phentsize<56 || phoffLong<0 || phoffLong+(long)phentsize*phnum>data.length-table) throw new Exception("Повреждены ELF program headers внутри SELF");
-        int phoff=(int)phoffLong, headerSpan=phoff+phentsize*phnum; long maxSpan=headerSpan;
-        long[] offsets=new long[phnum], sizes=new long[phnum];
-        for(int i=0;i<phnum;i++){int h=table+phoff+i*phentsize;long off=u64(data,h+8),size=u64(data,h+32);if(off<0||size<0||off+size>Integer.MAX_VALUE)throw new Exception("SELF содержит неверные ELF offsets");offsets[i]=off;sizes[i]=size;maxSpan=Math.max(maxSpan,off+size);}
-        if(maxSpan>Integer.MAX_VALUE)throw new Exception("Извлечённый ELF слишком велик");
-        byte[] image=new byte[(int)maxSpan]; System.arraycopy(data,table,image,0,headerSpan); boolean placed=false;
-        for(int i=0;i<count;i++){
-            int entry=0x20+i*0x20;long flags=u64(data,entry),sourceOff=u64(data,entry+8),encoded=u64(data,entry+16),decoded=u64(data,entry+24);
-            if((flags&2)!=0)throw new Exception("SELF содержит сжатый сегмент; такой дамп пока не поддержан");
-            if(encoded!=decoded)throw new Exception("SELF содержит зашифрованный сегмент; нужен расшифрованный дамп");
-            if((flags&0x800)==0)continue;int index=(int)((flags>>>20)&0xfff);if(index>=phnum||sizes[index]==0)continue;
-            long amount=Math.min(sizes[index],decoded);if(sourceOff<0||sourceOff+amount>data.length||offsets[index]+amount>image.length)throw new Exception("Повреждены данные сегмента SELF");
-            System.arraycopy(data,(int)sourceOff,image,(int)offsets[index],(int)amount);placed=true;
+        File parent=destination.getParentFile();if(parent!=null)parent.mkdirs();
+        try(java.io.RandomAccessFile in=new java.io.RandomAccessFile(source,"r");java.io.RandomAccessFile out=new java.io.RandomAccessFile(destination,"rw")){
+            long length=in.length();
+            byte[] head=new byte[(int)Math.min(length,0x40)];in.readFully(head);
+            // Дамп уже расшифрован до ELF (так сохраняют часть дамперов): копия как есть, с тем же e_type, что у SELF.
+            if (head.length >= 0x40 && head[0]==0x7f && head[1]=='E' && head[2]=='L' && head[3]=='F') {
+                out.setLength(0);
+                java.nio.channels.FileChannel from=in.getChannel(), to=out.getChannel();
+                for(long done=0;done<length;){long n=to.transferFrom(from.position(done),done,length-done);if(n<=0)throw new Exception("Не удалось скопировать ELF");done+=n;}
+                if(u16(head,16)==0xfe18){byte[] type=new byte[2];putU16(type,0,3);out.seek(16);out.write(type);}
+                return;
+            }
+            String magic = head.length >= 4 ? String.format(Locale.US, "%02X %02X %02X %02X", head[0], head[1], head[2], head[3]) : "?";
+            if (head.length >= 4 && (head[0]&0xff)==0x4f && (head[1]&0xff)==0x15 && (head[2]&0xff)==0x3d && (head[3]&0xff)==0x1d)
+                throw new Exception(source.getName() + ": это SELF игры для PS4 (" + magic + "), AnyPS5 запускает только игры для PS5");
+            if (head.length < 0x20 || (u64(head, 0) & 0xffffffffL) != 0xEEF51454L) throw new Exception(source.getName() + " не является ни PS5 SELF, ни ELF (первые байты " + magic + "): похоже, дамп зашифрован или повреждён");
+            int count=u16(head,0x18); long tableLong=0x20L+(long)count*0x20L;
+            if (tableLong+64>length) throw new Exception("Повреждена таблица сегментов SELF");
+            int table=(int)tableLong;
+            byte[] data=new byte[table+64];in.seek(0);in.readFully(data);
+            if (data[table]!=0x7f || data[table+1]!='E' || data[table+2]!='L' || data[table+3]!='F') throw new Exception("SELF зашифрован: внутри не найден ELF-заголовок");
+            long phoffLong=u64(data,table+32); int phentsize=u16(data,table+54), phnum=u16(data,table+56);
+            if (phentsize<56 || phoffLong<0 || phoffLong+(long)phentsize*phnum>length-table) throw new Exception("Повреждены ELF program headers внутри SELF");
+            int phoff=(int)phoffLong, headerSpan=phoff+phentsize*phnum; long maxSpan=headerSpan;
+            byte[] header=new byte[headerSpan];in.seek(table);in.readFully(header);
+            long[] offsets=new long[phnum], sizes=new long[phnum];
+            for(int i=0;i<phnum;i++){int h=phoff+i*phentsize;long off=u64(header,h+8),size=u64(header,h+32);if(off<0||size<0||off+size>Integer.MAX_VALUE)throw new Exception("SELF содержит неверные ELF offsets");offsets[i]=off;sizes[i]=size;maxSpan=Math.max(maxSpan,off+size);}
+            if(maxSpan>Integer.MAX_VALUE)throw new Exception("Извлечённый ELF слишком велик");
+            out.setLength(0);out.setLength(maxSpan);out.seek(0);out.write(header);boolean placed=false;
+            java.nio.channels.FileChannel from=in.getChannel(), to=out.getChannel();
+            for(int i=0;i<count;i++){
+                int entry=0x20+i*0x20;long flags=u64(data,entry),sourceOff=u64(data,entry+8),encoded=u64(data,entry+16),decoded=u64(data,entry+24);
+                if((flags&2)!=0)throw new Exception("SELF содержит сжатый сегмент; такой дамп пока не поддержан");
+                if(encoded!=decoded)throw new Exception("SELF содержит зашифрованный сегмент; нужен расшифрованный дамп");
+                if((flags&0x800)==0)continue;int index=(int)((flags>>>20)&0xfff);if(index>=phnum||sizes[index]==0)continue;
+                long amount=Math.min(sizes[index],decoded);if(sourceOff<0||sourceOff+amount>length||offsets[index]+amount>maxSpan)throw new Exception("Повреждены данные сегмента SELF");
+                for(long done=0;done<amount;){long n=to.transferFrom(from.position(sourceOff+done),offsets[index]+done,amount-done);if(n<=0)throw new Exception("Не удалось скопировать сегмент SELF");done+=n;}
+                placed=true;
+            }
+            if(!placed)throw new Exception("SELF не содержит ELF-сегментов для извлечения");
+            byte[] type=new byte[2];out.seek(16);out.readFully(type);
+            if(u16(type,0)==0xfe18){putU16(type,0,3);out.seek(16);out.write(type);}
         }
-        if(!placed)throw new Exception("SELF не содержит ELF-сегментов для извлечения");
-        if(u16(image,16)==0xfe18)putU16(image,16,3);
-        File parent=destination.getParentFile();if(parent!=null)parent.mkdirs();FileOutputStream out=new FileOutputStream(destination);try{out.write(image);}finally{out.close();}
     }
     private static void extractSelfModules(File game) throws Exception {
         for(String dirName:new String[]{"sce_module","sce_modules","prx"}){File dir=new File(game,dirName);File[] modules=dir.listFiles();if(modules==null)continue;for(File module:modules){if(!module.isFile()||!isSelf(module))continue;File temp=new File(module.getParentFile(),module.getName()+".elftmp");extractSelf(module,temp);if(!module.delete()||!temp.renameTo(module))throw new Exception("Не удалось заменить SELF-модуль: "+module.getName());}}
     }
+    // relinker делает каждый модуль из <game>/prx зависимостью app.elf: он загружается при старте и его init
+    // получает пустые аргументы. Модули, которые игра грузит сама (sceKernelLoadStartModule с аргументами: SaveData,
+    // PSN, CommonDialog у PvZ), так падают в init. Поэтому два прохода: первый со всеми модулями — ради их
+    // .guest.prx для загрузки игрой (его app-modules.elf не нужен), второй — app.elf только с модулями, нужными с
+    // самого старта (DT_NEEDED eboot.elf и, по цепочке, самих модулей). Экспорты модулей получают суффикс #guest в
+    // обоих проходах, так что .guest.prx первого прохода сходятся с app.elf второго.
     private void runRelinker(File game) throws Exception {
+        File prx=new File(game,"prx"), later=new File(game,"prx-dynamic");
+        File[] parked=later.listFiles();
+        if(parked!=null)for(File module:parked){if(!prx.isDirectory()&&!prx.mkdirs())throw new Exception("Не удалось создать prx");if(!module.renameTo(new File(prx,module.getName())))throw new Exception("Не удалось вернуть модуль "+module.getName());}
+        File[] modules=prx.listFiles();
+        java.util.List<File> loadedLater=new java.util.ArrayList<>();
+        if(modules!=null&&modules.length>0){
+            java.util.Set<String> startup=startupModules(new File(game,"eboot.elf"),modules);
+            for(File module:modules)if(!startup.contains(module.getName()))loadedLater.add(module);
+        }
+        if(!loadedLater.isEmpty()){
+            File scratch=new File(game,"app-modules.elf");
+            relink(game,scratch,"relinker-modules.log");
+            scratch.delete();
+            if(!later.isDirectory()&&!later.mkdirs())throw new Exception("Не удалось создать prx-dynamic");
+            for(File module:loadedLater)if(!module.renameTo(new File(later,module.getName())))throw new Exception("Не удалось отложить модуль "+module.getName());
+        }
+        relink(game,new File(game,"app.elf"),"relinker.log");
+    }
+    // --to-intel: инструкции, которые есть только у AMD (процессор PS5) и которых нет в box64 — SSE4a INSERTQ/EXTRQ
+    // (Mewgenics падал на INSERTQ с SIGILL), MONITORX, CLZERO, RDPRU, а также VRCPPS/VRSQRTPS с точностью AMD, —
+    // relinker заменяет эквивалентным кодом. Если замена невозможна (relinker тогда завершается с ошибкой),
+    // перелинковка повторяется без неё, как раньше.
+    private void relink(File game, File result, String log) throws Exception {
+        if (!relinkToIntel(game)) { relink(game, result, log, false); return; }
+        try { relink(game, result, log, true); }
+        catch (Exception converted) {
+            try { Files.copy(new File(game, log).toPath(), new File(game, log + ".to-intel").toPath(), java.nio.file.StandardCopyOption.REPLACE_EXISTING); } catch (Exception ignored) {}
+            relink(game, result, log, false);
+        }
+    }
+    private void relink(File game, File result, String log, boolean toIntel) throws Exception {
         File relinker=new File(getApplicationInfo().nativeLibraryDir,"librelinker.so");
         if(!relinker.isFile())throw new Exception("В APK не найден Android relinker");
-        File elf=new File(game,"eboot.elf"), result=new File(game,"app.elf");
-        ProcessBuilder pb=new ProcessBuilder(relinker.getAbsolutePath(),elf.getAbsolutePath(),result.getAbsolutePath());pb.directory(game);pb.redirectErrorStream(true);pb.redirectOutput(new File(game,"relinker.log"));pb.environment().put("LD_LIBRARY_PATH",getApplicationInfo().nativeLibraryDir);
+        File elf=new File(game,"eboot.elf");
+        java.util.List<String> command=new java.util.ArrayList<>();
+        command.add(relinker.getAbsolutePath());
+        if(toIntel)command.add("--to-intel");
+        command.add(elf.getAbsolutePath());command.add(result.getAbsolutePath());
+        ProcessBuilder pb=new ProcessBuilder(command);pb.directory(game);pb.redirectErrorStream(true);pb.redirectOutput(new File(game,log));pb.environment().put("LD_LIBRARY_PATH",getApplicationInfo().nativeLibraryDir);
         int code;try{code=pb.start().waitFor();}catch(Exception e){throw new Exception("Не удалось запустить relinker: "+e.getMessage());}
-        if(code!=0||!result.isFile()){String detail="";try{java.util.List<String> lines=Files.readAllLines(new File(game,"relinker.log").toPath());int from=Math.max(0,lines.size()-12);detail=android.text.TextUtils.join("\n",lines.subList(from,lines.size()));}catch(Exception ignored){}throw new Exception("Relinker завершился с кодом "+code+(detail.isEmpty()?"":"\n"+detail));}
-        if(!result.setExecutable(true,false))throw new Exception("Не удалось разрешить запуск созданного app.elf");
+        if(code!=0||!result.isFile()){String detail="";try{java.util.List<String> lines=Files.readAllLines(new File(game,log).toPath());int from=Math.max(0,lines.size()-12);detail=android.text.TextUtils.join("\n",lines.subList(from,lines.size()));}catch(Exception ignored){}throw new Exception("Relinker завершился с кодом "+code+(detail.isEmpty()?"":"\n"+detail));}
+        if(!result.setExecutable(true,false))throw new Exception("Не удалось разрешить запуск созданного "+result.getName());
+    }
+    // Имена модулей из prx, нужных с самого старта: DT_NEEDED eboot.elf и, по цепочке, самих модулей. Имя сверяется
+    // целиком или без расширения (.prx/.sprx/.debug_prx), как relinker сопоставляет зависимости.
+    private static java.util.Set<String> startupModules(File executable, File[] modules) throws Exception {
+        java.util.Set<String> startup=new java.util.HashSet<>();
+        java.util.List<String> roots=elfNeeded(executable);
+        // Зависимости eboot.elf не прочитаны: все модули — при старте, как в одном проходе.
+        if(roots.isEmpty()){for(File module:modules)startup.add(module.getName());return startup;}
+        java.util.ArrayDeque<String> pending=new java.util.ArrayDeque<>(roots);
+        java.util.Set<String> seen=new java.util.HashSet<>();
+        while(!pending.isEmpty()){
+            String name=pending.poll();if(!seen.add(name))continue;
+            for(File module:modules){
+                if(startup.contains(module.getName()))continue;
+                if(!module.getName().equals(name)&&!moduleStem(module.getName()).equals(moduleStem(name)))continue;
+                startup.add(module.getName());
+                pending.addAll(elfNeeded(module));
+            }
+        }
+        return startup;
+    }
+    private static String moduleStem(String name) {
+        for(String suffix:new String[]{".debug_prx",".sprx",".prx"})if(name.length()>suffix.length()&&name.endsWith(suffix))return name.substring(0,name.length()-suffix.length());
+        return name;
+    }
+    // DT_NEEDED ELF-файла PS5: строки — из DT_SCE_STRTAB (смещение от PT_SCE_DYNLIBDATA) или из DT_STRTAB (адрес).
+    private static java.util.List<String> elfNeeded(File file) throws Exception {
+        java.util.List<String> names=new java.util.ArrayList<>();
+        try(java.io.RandomAccessFile in=new java.io.RandomAccessFile(file,"r")){
+            byte[] header=new byte[64];if(in.length()<64)return names;in.readFully(header);
+            if(header[0]!=0x7f||header[1]!='E'||header[2]!='L'||header[3]!='F')return names;
+            long phoff=u64(header,32);int phentsize=u16(header,54),phnum=u16(header,56);
+            if(phentsize<56||phoff<0||phoff+(long)phentsize*phnum>in.length())return names;
+            byte[] table=new byte[phentsize*phnum];in.seek(phoff);in.readFully(table);
+            long dynOffset=-1,dynSize=0,libOffset=-1;
+            java.util.List<long[]> loads=new java.util.ArrayList<>();
+            for(int i=0;i<phnum;i++){
+                int h=i*phentsize;long type=ByteBuffer.wrap(table,h,4).order(ByteOrder.LITTLE_ENDIAN).getInt()&0xffffffffL;
+                long offset=u64(table,h+8),vaddr=u64(table,h+16),filesz=u64(table,h+32);
+                if(type==2){dynOffset=offset;dynSize=filesz;}
+                else if(type==0x61000000L)libOffset=offset;
+                else if(type==1)loads.add(new long[]{offset,vaddr,filesz});
+            }
+            if(dynOffset<0||dynSize<=0||dynOffset+dynSize>in.length()||dynSize>(16<<20))return names;
+            byte[] dyn=new byte[(int)dynSize];in.seek(dynOffset);in.readFully(dyn);
+            java.util.List<Long> needed=new java.util.ArrayList<>();long sceStrtab=-1,strtab=-1;
+            for(int p=0;p+16<=dyn.length;p+=16){
+                long tag=u64(dyn,p),value=u64(dyn,p+8);
+                if(tag==0)break;
+                if(tag==1)needed.add(value);else if(tag==0x61000035L)sceStrtab=value;else if(tag==5)strtab=value;
+            }
+            long base=-1;
+            if(sceStrtab>=0&&libOffset>=0)base=libOffset+sceStrtab;
+            else if(strtab>=0)for(long[] load:loads)if(strtab>=load[1]&&strtab<load[1]+load[2])base=load[0]+strtab-load[1];
+            if(base<0)return names;
+            for(long offset:needed){
+                long at=base+offset;if(at<0||at>=in.length())continue;
+                in.seek(at);StringBuilder name=new StringBuilder();
+                for(int c;(c=in.read())>0&&name.length()<256;)name.append((char)c);
+                if(name.length()>0)names.add(name.toString());
+            }
+        }
+        return names;
     }
     private void linkGameResources(File game) throws Exception {
         File app0=new File(game,"app0");if(!app0.exists()&&!app0.mkdirs())throw new Exception("Не удалось создать app0");
         File[] entries=game.listFiles();if(entries==null)return;
         for(File entry:entries){
             String name=entry.getName();
-            if(name.equals("app0")||name.equals("app.elf")||name.equals("eboot.bin")||name.equals("eboot.elf")||name.equals("relinker.log")||name.equals("box64.log")||name.equals("libs")||name.equals("x64lib")||name.equals("sce_module")||name.equals("sce_modules")||name.equals("prx"))continue;
+            if(name.equals("app0")||name.equals("app.elf")||name.equals("eboot.bin")||name.equals("eboot.elf")||name.equals("relinker.log")||name.equals("box64.log")||name.equals("libs")||name.equals("x64lib")||name.equals("sce_module")||name.equals("sce_modules")||name.equals("prx")||name.equals("prx-dynamic")||name.equals("relinker-modules.log"))continue;
             File link=new File(app0,name);String target="../"+name;
             try{if(Files.exists(link.toPath(),java.nio.file.LinkOption.NOFOLLOW_LINKS))clearDirectory(link);Os.symlink(target,link.getAbsolutePath());}
             catch(Exception e){throw new Exception("Не удалось подключить ресурс "+name+" в app0: "+e.getMessage());}
         }
     }
+    // Модули игры (Media/Modules, Media/Plugins: Il2cppUserAssemblies.prx, PS5Util.prx) relinker берёт только из
+    // <game>/prx и собирает в app0/prx/<имя>.guest.prx; app.elf привязывается к их экспортам (#guest). Без этого
+    // app.elf ищет эти NID без суффикса и вызывает пустые слоты (strlen(NULL) при старте).
+    private static boolean isGameModule(File file) {
+        String name = file.getName();
+        return name.endsWith(".prx") && !name.endsWith(".guest.prx") && !Files.isSymbolicLink(file.toPath()) && file.isFile();
+    }
+    // Версия раскладки перелинковки: app.elf, собранный раньше, пересобирается (2 — модули, которые игра грузит сама,
+    // не зависимости app.elf; 3 — замена инструкций AMD, --to-intel).
+    private static final String RELINK_LAYOUT = "3";
+    // APS5_RELINK_TO_INTEL=0 в env.txt игры: перелинковка без замены инструкций AMD (если замена мешает игре).
+    // Значение входит в метку раскладки, так что его смена перелинковывает игру при следующем запуске.
+    private static boolean relinkToIntel(File game) {
+        try {
+            for (String line : Files.readAllLines(new File(game, "env.txt").toPath())) {
+                if (line.trim().equals("APS5_RELINK_TO_INTEL=0")) return false;
+            }
+        } catch (Exception ignored) {}
+        return true;
+    }
+    private static String relinkLayout(File game) { return relinkToIntel(game) ? RELINK_LAYOUT : RELINK_LAYOUT + "-no-intel"; }
+    private static boolean staleRelinkLayout(File game) {
+        try { return !relinkLayout(game).equals(new String(Files.readAllBytes(new File(game, ".relink-layout").toPath())).trim()); } catch (Exception e) { return true; }
+    }
+    private static boolean hasUnlinkedGameModules(File game) {
+        for (String folder : new String[] {"Modules", "Plugins"}) {
+            File[] entries = new File(new File(game, "Media"), folder).listFiles();
+            if (entries != null) for (File entry : entries) if (isGameModule(entry)) return true;
+        }
+        return false;
+    }
+    private static void stageGameModules(File game) throws Exception {
+        File prx = new File(game, "prx");
+        for (String folder : new String[] {"Modules", "Plugins"}) {
+            File[] entries = new File(new File(game, "Media"), folder).listFiles();
+            if (entries == null) continue;
+            for (File entry : entries) {
+                if (!isGameModule(entry)) continue;
+                if (!prx.isDirectory() && !prx.mkdirs()) throw new Exception("Не удалось создать prx");
+                File target = new File(prx, entry.getName());
+                if (target.exists() && !target.delete()) throw new Exception("Не удалось заменить модуль " + target.getName());
+                if (!entry.renameTo(target)) throw new Exception("Не удалось перенести модуль " + entry.getName() + " в prx");
+                // Игра грузит модуль по пути /app0/Media/...: ссылка на результат relinker (появится после него).
+                Os.symlink("../../app0/prx/" + entry.getName() + ".guest.prx", entry.getAbsolutePath());
+            }
+        }
+    }
+    // После relinker: libs/<имя> (как и Media/<папка>/<имя>) ведёт на app0/prx/<имя>.guest.prx — один и тот же файл и
+    // для DT_NEEDED app.elf, и для загрузки модуля игрой по пути /app0/Media/... Старые <имя>.guest.prx в Media (артефакты
+    // другой сборки с другим набором экспортов) удаляются: загрузчик AnyPS5 предпочёл бы их.
     private void linkGuestPrxLibraries(File game) throws Exception {
         File libs=new File(game,"libs");libs.mkdirs();
+        File[] built=new File(new File(game,"app0"),"prx").listFiles();
         for(String folder:new String[]{"Modules","Plugins"}){
             File dir=new File(new File(game,"Media"),folder);File[] entries=dir.listFiles();if(entries==null)continue;
-            for(File guest:entries){String filename=guest.getName();String suffix=".guest.prx";if(!guest.isFile()||!filename.endsWith(suffix))continue;
-                String libraryName=filename.substring(0,filename.length()-suffix.length());File link=new File(libs,libraryName);
-                String target="../Media/"+folder+"/"+filename;
-                try{
-                    if(Files.isSymbolicLink(link.toPath())){if(target.equals(Files.readSymbolicLink(link.toPath()).toString()))continue;Files.delete(link.toPath());}
-                    else if(Files.exists(link.toPath(),java.nio.file.LinkOption.NOFOLLOW_LINKS))continue;
-                    Os.symlink(target,link.getAbsolutePath());
-                }catch(Exception e){throw new Exception("Не удалось подключить guest PRX "+filename+": "+e.getMessage());}
-            }
+            for(File stale:entries)if(stale.getName().endsWith(".guest.prx"))Files.deleteIfExists(stale.toPath());
+        }
+        if(built==null)return;
+        for(File guest:built){String filename=guest.getName();String suffix=".guest.prx";if(!guest.isFile()||!filename.endsWith(suffix))continue;
+            String libraryName=filename.substring(0,filename.length()-suffix.length());
+            File link=new File(libs,libraryName);String target="../app0/prx/"+filename;
+            try{
+                if(Files.isSymbolicLink(link.toPath())&&target.equals(Files.readSymbolicLink(link.toPath()).toString()))continue;
+                Files.deleteIfExists(link.toPath());
+                Os.symlink(target,link.getAbsolutePath());
+            }catch(Exception e){throw new Exception("Не удалось подключить guest PRX "+filename+": "+e.getMessage());}
         }
     }
     private void statusOnUi(final String message) { runOnUiThread(new Runnable(){@Override public void run(){status.setText(message);}}); }

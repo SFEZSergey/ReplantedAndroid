@@ -1,0 +1,101 @@
+# APK из текущего кода лаунчера (Java, ресурсы, манифест) поверх нативной части и рантайма готового релиза:
+# lib/ (box64, Turnip, нативная группа AnyPS5, relinker) и assets/ (x86-64 PRX, x64lib) берутся из APK релиза,
+# поэтому сборка не требует Mesa, box64 и AnyPS5 и идёт пару минут. Нативные изменения так не попадут в APK —
+# для них по-прежнему android/build.sh.
+#
+# Подпись: секреты KEYSTORE_BASE64 (base64 от android/debug.keystore, которым подписаны релизы) и, если пароль не
+# android, KEYSTORE_PASSWORD. Тогда APK ставится поверх релиза с сохранением импортированной игры. Без секрета
+# подписывается ключом, созданным на лету: такой APK ставится только после удаления релизного.
+name: APK
+
+on:
+  workflow_dispatch:
+    inputs:
+      base_release:
+        description: Релиз, из APK которого берутся lib/ и assets/ (пусто — последний)
+        required: false
+        default: ''
+  push:
+    paths:
+      - android/src/**
+      - android/res/**
+      - android/AndroidManifest.xml
+      - .github/workflows/apk.yml
+
+permissions:
+  contents: read
+
+jobs:
+  apk:
+    runs-on: ubuntu-latest
+    env:
+      PLATFORM: android-35
+      BUILD_TOOLS: 35.0.0
+      GH_TOKEN: ${{ github.token }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: 17
+
+      - name: Android SDK
+        run: |
+          yes | "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" "platforms;$PLATFORM" "build-tools;$BUILD_TOOLS" > /dev/null
+          echo "BT=$ANDROID_HOME/build-tools/$BUILD_TOOLS" >> "$GITHUB_ENV"
+          echo "JAR=$ANDROID_HOME/platforms/$PLATFORM/android.jar" >> "$GITHUB_ENV"
+
+      # Java-часть SDL — того коммита, на котором стоит AnyPS5 (как в android/build.sh).
+      - name: SDL Java sources
+        run: |
+          git submodule update --init --depth 1 external/AnyPS5
+          sdl=$(git -C external/AnyPS5 ls-tree HEAD 3rdparty/SDL2 | awk '{print $3}')
+          git init -q "$RUNNER_TEMP/sdl"
+          git -C "$RUNNER_TEMP/sdl" fetch -q --depth 1 https://github.com/libsdl-org/SDL.git "$sdl"
+          git -C "$RUNNER_TEMP/sdl" checkout -q FETCH_HEAD
+          echo "SDL=$RUNNER_TEMP/sdl/android-project/app/src/main/java" >> "$GITHUB_ENV"
+
+      - name: Base release APK
+        run: |
+          base="${{ inputs.base_release }}"
+          [ -n "$base" ] || base=$(gh release list -R "$GITHUB_REPOSITORY" --limit 1 --json tagName --jq '.[0].tagName')
+          echo "Base release: $base"
+          echo "BASE=$base" >> "$GITHUB_ENV"
+          mkdir -p out/base
+          gh release download "$base" -R "$GITHUB_REPOSITORY" -p '*.apk' -O out/base.apk
+          unzip -q out/base.apk 'lib/*' 'assets/*' -d out/base
+
+      - name: Build
+        run: |
+          mkdir -p out/gen out/classes
+          "$BT/aapt" package -f -m -J out/gen -S android/res -M android/AndroidManifest.xml -I "$JAR" -F out/unsigned.apk
+          javac -nowarn -source 8 -target 8 -classpath "$JAR" -d out/classes $(find android/src "$SDL" out/gen -name '*.java')
+          "$BT/d8" --min-api 26 --lib "$JAR" --output out $(find out/classes -name '*.class')
+          (cd out && zip -q -r unsigned.apk classes.dex)
+          (cd out/base && zip -q -9 -r ../unsigned.apk assets && zip -q -r ../unsigned.apk lib)
+          "$BT/zipalign" -f -p 4 out/unsigned.apk out/aligned.apk
+
+      - name: Sign
+        env:
+          KEYSTORE_BASE64: ${{ secrets.KEYSTORE_BASE64 }}
+          KEYSTORE_PASSWORD: ${{ secrets.KEYSTORE_PASSWORD }}
+        run: |
+          pass="${KEYSTORE_PASSWORD:-android}"
+          if [ -n "$KEYSTORE_BASE64" ]; then
+            echo "$KEYSTORE_BASE64" | base64 -d > "$RUNNER_TEMP/release.keystore"
+          else
+            echo "::warning::KEYSTORE_BASE64 is not set: signed with a temporary key, uninstall the release APK before installing this one"
+            keytool -genkeypair -keystore "$RUNNER_TEMP/release.keystore" -storepass "$pass" -keypass "$pass" -alias androiddebugkey -dname 'CN=Android Debug,O=Android,C=US' -keyalg RSA -keysize 2048 -validity 10000 > /dev/null 2>&1
+          fi
+          alias=$(keytool -list -keystore "$RUNNER_TEMP/release.keystore" -storepass "$pass" | awk -F, '/PrivateKeyEntry/ {print $1; exit}')
+          "$BT/apksigner" sign --v1-signing-enabled true --v2-signing-enabled true --v3-signing-enabled true \
+            --ks "$RUNNER_TEMP/release.keystore" --ks-pass "pass:$pass" --key-pass "pass:$pass" --ks-key-alias "$alias" \
+            --out out/PvZ-Replanted.apk out/aligned.apk
+          "$BT/apksigner" verify out/PvZ-Replanted.apk
+          rm -f "$RUNNER_TEMP/release.keystore"
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: PvZ-Replanted-${{ github.sha }}
+          path: out/PvZ-Replanted.apk

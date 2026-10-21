@@ -84,6 +84,13 @@
 | `external/box64` | подмодуль (C) — форк box64, ветка `android` (box64 как библиотека внутри APK, совместимость glibc поверх bionic, сигналы, DynaCache) |
 | `patches/mesa-26.3-android.patch` | Turnip: импорт host-памяти через KGSL, линейные буферы swapchain с gralloc |
 | `patches/sdl2-android-udev-once.patch` | SDL2 (подмодуль AnyPS5) |
+| `patches/box64-android-hwcap.patch` | box64: расширения процессора (атомарные LSE, FLAGM, FRINT, CRC32…) читаются через `getauxval` bionic; без него динарек в приложении видел только ASIMD |
+| `patches/anyps5-mouse-absolute.patch` | AnyPS5: режим абсолютных координат мыши PS5: движение двигает курсор по виртуальному экрану игры, `sceMouseReadAbsolutePosition` отдаёт его вместе с кнопками и колесом (Mewgenics, PPSA37318, читает мышь только так) |
+| `patches/anyps5-volume-2darray.patch` | AnyPS5: коммит 945b970 из основного репозитория (загрузки и записи 2D-массивов в 3D-текстуры), нужен Mewgenics; только код |
+| `patches/anyps5-line-on-plane.patch` | AnyPS5: одномерные загрузки и записи в 2D-текстуры и 2D-массивы (недостающие строка и слой — нули); так Mewgenics читает «линию» 9100×1 в десятках отрисовок за кадр |
+| `patches/anyps5-skip-failed-shaders.patch` | AnyPS5: `APS5_SKIP_FAILED_SHADERS` (в APK включён) пропускает отрисовку с неподдерживаемым шейдером вместо закрытия игры, как в основном репозитории |
+| `patches/anyps5-pass-timing.patch` | AnyPS5: при `APS5_PROFILE_GPU=1` отчёт `[gputime]` дополнительно делит время отрисовки по проходам (размер, цели, фрагментный шейдер) и один раз описывает каждый проход |
+| `patches/anyps5-host-ftz.patch` | Шейдеры AnyPS5 на Adreno: DPP quad_perm через аппаратные quad-операции вместо shuffle с индексом на каждую линию (в Turnip это цикл; `APS5_NO_QUAD_DPP=1` — как раньше); float-семантика хоста (в APK включена, `=0` отключает каждую): `APS5_HOST_FTZ=1` — сброс денормалей f32 самим GPU, `APS5_HOST_NAN=1` — NaN хоста, NMin/NMax и без SignedZeroInfNanPreserve для f32, `APS5_HOST_DPP=1` — чтение источников DPP без ballot, `APS5_HOST_FMA=1` — склейка умножения и сложения в одну инструкцию |
 | `cmake/` | toolchain-файлы CMake (bionic arm64 и x86-64 glibc), cross-файл Meson для Mesa, `box64-emu.sh` |
 | `compat/` | заголовки совместимости (ndk-shim, box64-android-compat) |
 
@@ -97,6 +104,12 @@
 git clone --recursive https://github.com/SFEZSergey/ReplantedAndroid
 cd ReplantedAndroid
 git -C external/AnyPS5/3rdparty/SDL2 apply ../../../../patches/sdl2-android-udev-once.patch
+git -C external/AnyPS5 apply ../../patches/anyps5-mouse-absolute.patch
+git -C external/AnyPS5 apply ../../patches/anyps5-volume-2darray.patch
+git -C external/AnyPS5 apply ../../patches/anyps5-line-on-plane.patch
+git -C external/AnyPS5 apply ../../patches/anyps5-skip-failed-shaders.patch
+git -C external/AnyPS5 apply ../../patches/anyps5-pass-timing.patch
+git -C external/AnyPS5 apply ../../patches/anyps5-host-ftz.patch
 ```
 
 1. **AnyPS5, нативная группа (bionic arm64)** → `external/AnyPS5/build-bionic`:
@@ -105,7 +118,7 @@ git -C external/AnyPS5/3rdparty/SDL2 apply ../../../../patches/sdl2-android-udev
 2. **AnyPS5, x86-64 библиотеки PS5 (PRX)** → `external/AnyPS5/build-x64s`: тот же исходник с
    `cmake/x86_64-linux-gnu.cmake`; нужен x86-64 sysroot Debian/Ubuntu (`PVZ_SYSROOT_X86_64`) и box64 для
    запуска x86-утилит сборки (`PVZ_BOX64`, см. `cmake/box64-emu.sh`).
-3. **box64** → `external/box64/build-lib`: `-DTERMUX=1 -DARM_DYNAREC=1 -DBOX64_SHARED_LIB=ON
+3. **box64** (с `git -C external/box64 apply ../../patches/box64-android-hwcap.patch`) → `external/box64/build-lib`: `-DTERMUX=1 -DARM_DYNAREC=1 -DBOX64_SHARED_LIB=ON
    -DCMAKE_BUILD_TYPE=RelWithDebInfo -DCMAKE_C_FLAGS="--target=aarch64-linux-android30 -fPIC -I$PWD/compat/box64-android-compat"`.
 4. **Mesa 26.3 (Turnip)**: ветка Mesa `26.3` + `patches/mesa-26.3-android.patch`, meson с
    `--cross-file cmake/mesa-android-cross.ini -Dbuildtype=release -Dvulkan-drivers=freedreno -Dgallium-drivers= -Dfreedreno-kmds=kgsl -Dplatforms=android -Dandroid-stub=true -Dandroid-libbacktrace=disabled -Dglx=disabled -Degl=disabled -Dgles1=disabled -Dgles2=disabled -Dopengl=false -Dllvm=disabled -Dzlib=enabled`
