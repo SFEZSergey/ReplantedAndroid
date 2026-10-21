@@ -269,7 +269,7 @@ index e2c9f9f7b..5e6d76349 100644
 +bool HostContraction() {
 +    static const bool host = [] {
 +        const char* text = std::getenv("APS5_HOST_FMA");
-+        return text != nullptr && std::strcmp(text, "1") == 0;
++        return text == nullptr || std::strcmp(text, "0") != 0;
 +    }();
 +    return host;
 +}
@@ -282,7 +282,7 @@ index e2c9f9f7b..5e6d76349 100644
 +bool HostDppSources() {
 +    static const bool host = [] {
 +        const char* text = std::getenv("APS5_HOST_DPP");
-+        return text != nullptr && std::strcmp(text, "1") == 0;
++        return text == nullptr || std::strcmp(text, "0") != 0;
 +    }();
 +    return host;
 +}
@@ -290,7 +290,7 @@ index e2c9f9f7b..5e6d76349 100644
 +bool HostNanPropagation() {
 +    static const bool host = [] {
 +        const char* text = std::getenv("APS5_HOST_NAN");
-+        return text != nullptr && std::strcmp(text, "1") == 0;
++        return text == nullptr || std::strcmp(text, "0") != 0;
 +    }();
 +    return host;
 +}
@@ -298,7 +298,7 @@ index e2c9f9f7b..5e6d76349 100644
 +bool HostDenormalFlush() {
 +    static const bool flush = [] {
 +        const char* text = std::getenv("APS5_HOST_FTZ");
-+        return text != nullptr && std::strcmp(text, "1") == 0;
++        return text == nullptr || std::strcmp(text, "0") != 0;
 +    }();
 +    return flush;
 +}

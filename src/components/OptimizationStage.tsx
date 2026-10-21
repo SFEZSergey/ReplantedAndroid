@@ -59,9 +59,9 @@ BOX64_DYNAREC_PAUSE=3`;
               <div className="inline-flex items-center gap-2 px-2.5 py-0.5 rounded-full text-xs font-semibold bg-amber-500/20 text-amber-300 border border-amber-500/30 mb-1">
                 ЭТАП 2
               </div>
-              <h2 className="text-xl font-bold text-white">Оптимизация и разбор низкого ФПС (Шейдерные проходы)</h2>
+              <h2 className="text-xl font-bold text-white">Оптимизация Mewgenics (PPSA37318) в AnyPS5 + Turnip</h2>
               <p className="text-sm text-[#c8e6c9]">
-                Анализ логов box64.log, device.txt (OnePlus 12R / Snapdragon 8 Elite) и 8 дампов SPIR-V
+                Анализ свежих логов box64.log, device.txt (OnePlus 12R / Snapdragon 8 Elite) и 8 дампов SPIR-V
               </p>
             </div>
           </div>
@@ -98,20 +98,20 @@ BOX64_DYNAREC_PAUSE=3`;
         <div className="grid grid-cols-2 md:grid-cols-4 gap-3 mt-6">
           <div className="bg-[#0f2a14] p-3 rounded-xl border border-red-500/30">
             <span className="text-[11px] text-[#a5d6a7]">Текущий ФПС в логе</span>
-            <div className="text-2xl font-black text-red-400 font-mono">16.3 FPS</div>
-            <span className="text-[10px] text-red-300/80">Период кадра: 61.3 мс</span>
+            <div className="text-2xl font-black text-red-400 font-mono">17.5 FPS</div>
+            <span className="text-[10px] text-red-300/80">Период кадра: 57.1 мс</span>
           </div>
 
           <div className="bg-[#0f2a14] p-3 rounded-xl border border-amber-500/30">
             <span className="text-[11px] text-[#a5d6a7]">Рендер-разрешение</span>
             <div className="text-2xl font-black text-amber-300 font-mono">3840×2160</div>
-            <span className="text-[10px] text-amber-200/80">4K UHD (экран: 2344×1080)</span>
+            <span className="text-[10px] text-amber-200/80">4K (Mewgenics internal)</span>
           </div>
 
           <div className="bg-[#0f2a14] p-3 rounded-xl border border-[#2e5e32]">
             <span className="text-[11px] text-[#a5d6a7]">Pass 0x95 + 0x9b</span>
-            <div className="text-2xl font-black text-yellow-300 font-mono">31.7 мс</div>
-            <span className="text-[10px] text-[#c8e6c9]">58% от всего времени GPU!</span>
+            <div className="text-2xl font-black text-yellow-300 font-mono">33.1 мс</div>
+            <span className="text-[10px] text-[#c8e6c9]">102 draws на 0x95 (58% GPU)</span>
           </div>
 
           <div className="bg-[#0f2a14] p-3 rounded-xl border border-[#2e5e32]">

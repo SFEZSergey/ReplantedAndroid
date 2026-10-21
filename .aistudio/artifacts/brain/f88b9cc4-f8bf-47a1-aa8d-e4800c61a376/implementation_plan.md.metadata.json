@@ -1,0 +1,6 @@
+{
+  "summary":  "План поэтапной итеративной оптимизации для Mewgenics (PPSA37318) в связке AnyPS5 + Turnip (Mesa 26.3): устранение перегрузки в проходах 0x95 и 0x9b, разблокировка кристального GMEM в Turnip, оптимизация барьеров конвейера и пересборка libSceAgcDriver.",
+  "updatedAt":  "2026-10-21T06:48:36.058019838Z",
+  "requestFeedback":  true,
+  "userFacing":  true
+}
