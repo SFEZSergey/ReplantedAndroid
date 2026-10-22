@@ -1,8 +1,16 @@
 diff --git a/core/libs/prx/libSceAgcDriver/Execution/src/VulkanDevice.cpp b/core/libs/prx/libSceAgcDriver/Execution/src/VulkanDevice.cpp
-index c5f443c00..3aee65cb4 100644
+index c5f443c00..6a588f8e4 100644
 --- a/core/libs/prx/libSceAgcDriver/Execution/src/VulkanDevice.cpp
 +++ b/core/libs/prx/libSceAgcDriver/Execution/src/VulkanDevice.cpp
-@@ -839,6 +839,7 @@ VulkanDevice::VulkanDevice(const PresentationWindow* window) : state(std::make_u
+@@ -56,6 +56,7 @@
+ #include <thread>
+ #include <unordered_map>
+ #include <vector>
++#include <cstdio>
+ #include <utility>
+ 
+ namespace AgcDriver {
+@@ -839,6 +840,7 @@ VulkanDevice::VulkanDevice(const PresentationWindow* window) : state(std::make_u
          if ((state->subgroup.supportedOperations & VK_SUBGROUP_FEATURE_BALLOT_BIT) != 0) state->capabilities.push_back(spv::CapabilityGroupNonUniformBallot);
          if ((state->subgroup.supportedOperations & VK_SUBGROUP_FEATURE_SHUFFLE_BIT) != 0) state->capabilities.push_back(spv::CapabilityGroupNonUniformShuffle);
          if ((state->subgroup.supportedOperations & VK_SUBGROUP_FEATURE_ARITHMETIC_BIT) != 0) state->capabilities.push_back(spv::CapabilityGroupNonUniformArithmetic);
@@ -10,6 +18,26 @@ index c5f443c00..3aee65cb4 100644
      }
      APS5_LOG_OUT("Selected GPU name=%s vendor=0x%x device=0x%x subgroup=%u", state->properties.deviceName, state->properties.vendorID, state->properties.deviceID, state->subgroup.subgroupSize);
      state->InstanceFunction<PFN_vkGetPhysicalDeviceMemoryProperties>("vkGetPhysicalDeviceMemoryProperties")(selected, &state->memoryProperties);
+@@ -2468,6 +2470,19 @@ bool VulkanDevice::present(std::uint32_t width, std::uint32_t height, bool opaqu
+     require(!residentConvert || (resident != nullptr && display != nullptr), "a converted resident presentation needs its image and display buffer");
+     require(uniform == nullptr || (pixels.empty() && display == nullptr && resident == nullptr), "a uniform presentation has no other source");
+     const bool direct = resident != nullptr && !residentConvert;
++    // APS5_PRESENT_CROP=WxH: the game draws its frame into the top-left WxH of a larger display
++    // buffer (Mewgenics with its screen and canvas patched to 1080p keeps 4K buffers): only that
++    // region is scaled to the window. Direct (resident image) presentations only.
++    static const std::pair<std::uint32_t, std::uint32_t> crop = [] {
++        const char* text = std::getenv("APS5_PRESENT_CROP");
++        unsigned w = 0, h = 0;
++        if (text == nullptr || std::sscanf(text, "%ux%u", &w, &h) != 2) return std::pair<std::uint32_t, std::uint32_t>{0u, 0u};
++        return std::pair<std::uint32_t, std::uint32_t>{w, h};
++    }();
++    if (direct && crop.first != 0 && crop.second != 0) {
++        width = std::min(width, crop.first);
++        height = std::min(height, crop.second);
++    }
+     // The scaler's source image, the color transfer's staging and the upload buffer are single
+     // objects an in-flight blit through them may still read: the paths using or re-creating them
+     // wait for every slot first. The game path did so before taking the mutex
 diff --git a/core/libs/prx/libSceAgcDriver/Graphics/src/ShaderValidation.cpp b/core/libs/prx/libSceAgcDriver/Graphics/src/ShaderValidation.cpp
 index 903746c24..8acb57e0a 100644
 --- a/core/libs/prx/libSceAgcDriver/Graphics/src/ShaderValidation.cpp
