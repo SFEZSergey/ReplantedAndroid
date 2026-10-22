@@ -1,0 +1,37 @@
+diff --git a/src/freedreno/vulkan/tu_image.cc b/src/freedreno/vulkan/tu_image.cc
+--- a/src/freedreno/vulkan/tu_image.cc
++++ b/src/freedreno/vulkan/tu_image.cc
+@@ -9,6 +9,8 @@
+ 
+ #include "tu_image.h"
+ 
++#include <stdlib.h>
++
+ #include "drm-uapi/drm_fourcc.h"
+ 
+ #include "util/format/u_format.h"
+@@ -504,9 +506,22 @@
+    /* If there is no format list, we may have to assume that a
+     * UBWC-incompatible format may be used.
+     * TODO: limit based on compatiblity class
++    *
++    * TU_MUTABLE_UBWC=1: on GPUs whose UBWC layout is the same for every
++    * format (ubwc_all_formats_compatible), trust an application that only
++    * views a mutable image in formats of its own class that UBWC supports
++    * (the image format itself was already checked). AnyPS5 creates every
++    * guest surface mutable for its sRGB and reinterpreting views and passes
++    * no list, which otherwise leaves all of its render targets uncompressed.
+     */
+-   if (!fmt_list || !fmt_list->viewFormatCount)
+-      return false;
++   if (!fmt_list || !fmt_list->viewFormatCount) {
++      static const bool trust_mutable = [] {
++         const char *value = getenv("TU_MUTABLE_UBWC");
++         return value && value[0] == '1';
++      }();
++      return trust_mutable &&
++             dev->physical_device->info->props.ubwc_all_formats_compatible;
++   }
+ 
+    for (uint32_t i = 0; i < fmt_list->viewFormatCount; i++) {
+       if (!ubwc_possible(dev, fmt_list->pViewFormats[i],

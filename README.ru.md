@@ -83,6 +83,7 @@
 | `external/AnyPS5` | подмодуль (C++) — форк AnyPS5, ветка `android` (нативная bionic-группа драйвера, отслеживание записи, вывод на Android, оптимизации) |
 | `external/box64` | подмодуль (C) — форк box64, ветка `android` (box64 как библиотека внутри APK, совместимость glibc поверх bionic, сигналы, DynaCache) |
 | `patches/mesa-26.3-android.patch` | Turnip: импорт host-памяти через KGSL, линейные буферы swapchain с gralloc |
+| `patches/mesa-26.3-mutable-ubwc.patch` | Turnip: `TU_MUTABLE_UBWC=1` оставляет сжатие UBWC изображениям с изменяемым форматом без списка форматов на GPU с независимым от формата UBWC (Adreno 7xx gen3, 8xx); такие все поверхности AnyPS5 |
 | `patches/sdl2-android-udev-once.patch` | SDL2 (подмодуль AnyPS5) |
 | `patches/box64-android-hwcap.patch` | box64: расширения процессора (атомарные LSE, FLAGM, FRINT, CRC32…) читаются через `getauxval` bionic; без него динарек в приложении видел только ASIMD |
 | `patches/anyps5-mouse-absolute.patch` | AnyPS5: режим абсолютных координат мыши PS5: движение двигает курсор по виртуальному экрану игры, `sceMouseReadAbsolutePosition` отдаёт его вместе с кнопками и колесом (Mewgenics, PPSA37318, читает мышь только так) |
@@ -120,7 +121,7 @@ git -C external/AnyPS5 apply ../../patches/anyps5-host-ftz.patch
    запуска x86-утилит сборки (`PVZ_BOX64`, см. `cmake/box64-emu.sh`).
 3. **box64** (с `git -C external/box64 apply ../../patches/box64-android-hwcap.patch`) → `external/box64/build-lib`: `-DTERMUX=1 -DARM_DYNAREC=1 -DBOX64_SHARED_LIB=ON
    -DCMAKE_BUILD_TYPE=RelWithDebInfo -DCMAKE_C_FLAGS="--target=aarch64-linux-android30 -fPIC -I$PWD/compat/box64-android-compat"`.
-4. **Mesa 26.3 (Turnip)**: ветка Mesa `26.3` + `patches/mesa-26.3-android.patch`, meson с
+4. **Mesa 26.3 (Turnip)**: ветка Mesa `26.3` + `patches/mesa-26.3-android.patch` и `patches/mesa-26.3-mutable-ubwc.patch`, meson с
    `--cross-file cmake/mesa-android-cross.ini -Dbuildtype=release -Dvulkan-drivers=freedreno -Dgallium-drivers= -Dfreedreno-kmds=kgsl -Dplatforms=android -Dandroid-stub=true -Dandroid-libbacktrace=disabled -Dglx=disabled -Degl=disabled -Dgles1=disabled -Dgles2=disabled -Dopengl=false -Dllvm=disabled -Dzlib=enabled`
    → `MESA_BUILD_DIR`. В Termux сначала поправьте первую строку Python-скриптов на python Termux (`termux-fix-shebang`): `/usr/bin/env` там нет.
 5. **libadrenotools** (сборка по его README) → `ADRENOTOOLS_DIR`; **relinker AnyPS5** для arm64
