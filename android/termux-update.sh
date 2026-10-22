@@ -4,7 +4,8 @@
 # Платформа: Snapdragon 8 Elite (Adreno 830) / Termux
 # Запуск: bash github.sh
 # Опции (перед командой): SKIP_MESA=1 — не пересобирать Turnip; KEEP_ENV=1 — не трогать env.txt;
-#                          CLEAN_CACHE=1 — стереть кэш шейдеров; GAME_ID=PPSA29802 — другая игра.
+#                          CLEAN_CACHE=1 — стереть кэш шейдеров; GAME_ID=PPSA29802 — другая игра;
+#                          MEW1080=0 — оставить Mewgenics в 4K (по умолчанию 1080p: tools/mew1080.sh).
 # ==============================================================================
 set -uo pipefail
 
@@ -91,6 +92,13 @@ chown \$(stat -c %u:%g \$G) \$G/env.txt
 chcon \$(stat -c %C \$G) \$G/env.txt
 cat \$G/env.txt
 " && ok "env.txt записан (старый — env.txt.bak)"
+fi
+
+# 7. Mewgenics в 1080p: холст движка и экран SDL в app.elf (проверка байтов, копия app.elf.orig1080) и
+#    APS5_PRESENT_CROP в env.txt. Откат: su -c 'sh ~/ps5-android/pvz-replanted-android/tools/mew1080.sh undo' (путь Termux).
+if [ "$GAME_ID" = PPSA37318 ] && [ "${MEW1080:-1}" = 1 ]; then
+  echo "=== Mewgenics 1080p ==="
+  su -c "sh '$REPO_DIR/tools/mew1080.sh'" | tail -n 3
 fi
 
 echo "=== ГОТОВО ==="
