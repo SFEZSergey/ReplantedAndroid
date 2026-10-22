@@ -87,8 +87,7 @@ wrapper: the APK launcher (Java), the native entry point `sdl_main.c` and the bi
 | `android/` | The APK: launcher and game Activity (Java), touch controls, `native/sdl_main.c` (libmain: starts box64, Vulkan through adrenotools, environment), `build.sh`, `tools/` |
 | `external/AnyPS5` | submodule (C++) — AnyPS5 fork, branch `android` (native bionic driver group, write watching, Android presentation, optimizations) |
 | `external/box64` | submodule (C) — box64 fork, branch `android` (box64 as a library inside the APK, glibc compatibility on top of bionic, signals, DynaCache) |
-| `patches/mesa-26.3-android.patch` | Turnip: host-memory import through KGSL, linear gralloc swapchain buffers |
-| `patches/mesa-26.3-mutable-ubwc.patch` | Turnip: `TU_MUTABLE_UBWC=1` keeps UBWC compression on mutable-format images created without a format list on GPUs with format-independent UBWC (Adreno 7xx gen3, 8xx); every AnyPS5 surface is such an image |
+| `patches/mesa-26.3-android.patch` | Turnip: host-memory import through KGSL, linear gralloc swapchain buffers; `TU_MUTABLE_UBWC=1` keeps UBWC compression on mutable-format images without a format list on GPUs with format-independent UBWC (Adreno 7xx gen3, 8xx), which is every AnyPS5 surface |
 | `patches/sdl2-android-udev-once.patch` | SDL2 (an AnyPS5 submodule) |
 | `patches/box64-android-hwcap.patch` | box64: CPU extensions (LSE atomics, FLAGM, FRINT, CRC32…) read through bionic's `getauxval`; without it the dynarec in the app saw ASIMD only |
 | `patches/anyps5-mouse-absolute.patch` | AnyPS5: the PS5 mouse absolute-position mode: the host's motion moves a cursor over the game's virtual screen and `sceMouseReadAbsolutePosition` returns it with the buttons and wheel (Mewgenics, PPSA37318, reads the mouse only this way) |
@@ -101,6 +100,8 @@ wrapper: the APK launcher (Java), the native entry point `sdl_main.c` and the bi
 | `compat/` | compatibility headers (ndk-shim, box64-android-compat) |
 
 ## Building
+
+Once everything below is built in Termux, `android/termux-update.sh` refreshes it in one go: it re-applies every AnyPS5 patch, the Mesa patch (and rebuilds Turnip), rebuilds the changed native libraries and the APK, installs it as root and writes a clean `env.txt` for the game (paths: `REPO_DIR`, `ANYPS5_DIR`, `MESA_DIR`, `APK_DIR`, `GAME_ID`; `SKIP_MESA=1`, `KEEP_ENV=1`, `CLEAN_CACHE=1`).
 
 Everything was built on the phone itself in **Termux** (clang/LLVM 21, cmake, ninja, meson, `aapt`, `d8`,
 `apksigner`, `zipalign`, `patchelf`, OpenJDK 21). Dependencies installed separately are looked up in `deps/`
@@ -126,7 +127,7 @@ git -C external/AnyPS5 apply ../../patches/anyps5-host-ftz.patch
    run the x86 build tools (`PVZ_BOX64`, see `cmake/box64-emu.sh`).
 3. **box64** (with `git -C external/box64 apply ../../patches/box64-android-hwcap.patch`) → `external/box64/build-lib`: `-DTERMUX=1 -DARM_DYNAREC=1 -DBOX64_SHARED_LIB=ON
    -DCMAKE_BUILD_TYPE=RelWithDebInfo -DCMAKE_C_FLAGS="--target=aarch64-linux-android30 -fPIC -I$PWD/compat/box64-android-compat"`.
-4. **Mesa 26.3 (Turnip)**: the Mesa `26.3` branch + `patches/mesa-26.3-android.patch` and `patches/mesa-26.3-mutable-ubwc.patch`, meson with
+4. **Mesa 26.3 (Turnip)**: the Mesa `26.3` branch + `patches/mesa-26.3-android.patch`, meson with
    `--cross-file cmake/mesa-android-cross.ini -Dbuildtype=release -Dvulkan-drivers=freedreno -Dgallium-drivers= -Dfreedreno-kmds=kgsl -Dplatforms=android -Dandroid-stub=true -Dandroid-libbacktrace=disabled -Dglx=disabled -Degl=disabled -Dgles1=disabled -Dgles2=disabled -Dopengl=false -Dllvm=disabled -Dzlib=enabled`
    → `MESA_BUILD_DIR`. On Termux, first point the Python scripts' shebangs at Termux's python (`termux-fix-shebang`), `/usr/bin/env` does not exist there.
 5. **libadrenotools** (built per its README) → `ADRENOTOOLS_DIR`; the **AnyPS5 relinker** for arm64
