@@ -151,7 +151,7 @@ index 825b51bf2..7be36f7c3 100644
      APS5_LOG_CHARS_OUT_DEBUG("SubmitAndWait");
      timer.phase(PhaseRecord);
 diff --git a/core/libs/prx/libSceAgcDriver/Graphics/src/Recorder.cpp b/core/libs/prx/libSceAgcDriver/Graphics/src/Recorder.cpp
-index 2b5536d0e..9638c27df 100644
+index 2b5536d0e..f1d02e9f6 100644
 --- a/core/libs/prx/libSceAgcDriver/Graphics/src/Recorder.cpp
 +++ b/core/libs/prx/libSceAgcDriver/Graphics/src/Recorder.cpp
 @@ -1392,11 +1392,12 @@ Recorder::DrawPassStart Recorder::StartDrawPass(std::uint64_t key, bool forced,
@@ -184,7 +184,7 @@ index 2b5536d0e..9638c27df 100644
  double timingProgramMs = 0, timingClassMs = 0, timingUnionMs = 0, timingBatchMs = 0;
  std::uint64_t timingBatches = 0;
  
-@@ -1802,6 +1805,12 @@ void reportBarriers() {
+@@ -1802,8 +1805,18 @@ void reportBarriers() {
  
  }
  
@@ -195,9 +195,16 @@ index 2b5536d0e..9638c27df 100644
 +}
 +
  bool Recorder::GpuTimingEnabled() {
-     static const bool enabled = std::getenv("APS5_PROFILE_GPU") != nullptr;
+-    static const bool enabled = std::getenv("APS5_PROFILE_GPU") != nullptr;
++    // Set and not "0" (APS5_PROFILE_GPU=0 reads as off, as a launcher env file writes it).
++    static const bool enabled = [] {
++        const char* value = std::getenv("APS5_PROFILE_GPU");
++        return value != nullptr && value[0] != '\0' && std::strcmp(value, "0") != 0;
++    }();
      return enabled;
-@@ -2378,7 +2387,7 @@ void Recorder::readGpuTiming(Batch& batch) {
+ }
+ 
+@@ -2378,7 +2391,7 @@ void Recorder::readGpuTiming(Batch& batch) {
          ++totals.count;
          totals.ms += ns / 1e6;
          totals.bytes += batch.timedBytes[i];
@@ -206,7 +213,7 @@ index 2b5536d0e..9638c27df 100644
          intervals.emplace_back(stamps[i * 2], stamps[i * 2 + 1]);
      }
      std::sort(intervals.begin(), intervals.end());
-@@ -2395,10 +2404,12 @@ void Recorder::readGpuTiming(Batch& batch) {
+@@ -2395,10 +2408,12 @@ void Recorder::readGpuTiming(Batch& batch) {
      lastReport = now;
      const auto presents = timingPresents.exchange(0, std::memory_order_relaxed);
      const double perPresent = presents != 0 ? 1.0 / static_cast<double>(presents) : 0.0;
@@ -221,7 +228,7 @@ index 2b5536d0e..9638c27df 100644
              char text[160];
              std::snprintf(text, sizeof(text), " %s x%llu %.1fms %.1fMiB (per present x%.1f %.2fms %.2fMiB)", CommandClassNames[key - ClassKey(CommandClass::DispatchLeading)], static_cast<unsigned long long>(totals.count), totals.ms, totals.bytes / 1048576.0, static_cast<double>(totals.count) * perPresent, totals.ms * perPresent, totals.bytes / 1048576.0 * perPresent);
              classes += text;
-@@ -2411,7 +2422,18 @@ void Recorder::readGpuTiming(Batch& batch) {
+@@ -2411,7 +2426,18 @@ void Recorder::readGpuTiming(Batch& batch) {
      AgcDriver::ProfilePrint_nid_no_patch("[gputime] %.0f ms of GPU time in %llu batches over 10 s (batch %.0f ms first to last command; classes %.0f ms, all ranges %.0f ms, untimed %.0f ms outside every range; %llu presents; %llu ranges dropped at the %u cap); by program:", timingProgramMs, static_cast<unsigned long long>(timingBatches), timingBatchMs, timingClassMs, timingUnionMs, timingBatchMs - timingUnionMs, static_cast<unsigned long long>(presents), static_cast<unsigned long long>(timingDropped.exchange(0, std::memory_order_relaxed)), MaxTimedRanges);
      for (std::size_t i = 0; i < hot.size() && i < 12; ++i) AgcDriver::ProfilePrint_nid_no_patch(" 0x%llx x%llu %.0fms", static_cast<unsigned long long>(hot[i].first), static_cast<unsigned long long>(hot[i].second.count), hot[i].second.ms);
      AgcDriver::ProfilePrint_nid_no_patch("; by class:%s\n", classes.c_str());

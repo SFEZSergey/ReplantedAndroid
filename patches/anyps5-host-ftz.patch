@@ -259,10 +259,10 @@ index 8c968fb3f..69224030d 100644
      const auto absBits = state.module.AllocateId();
      const auto signBits = state.module.AllocateId();
 diff --git a/core/shader/recompiler/Translation/src/DispatchInstructions.cpp b/core/shader/recompiler/Translation/src/DispatchInstructions.cpp
-index e2c9f9f7b..5e6d76349 100644
+index e2c9f9f7b..eae46f63c 100644
 --- a/core/shader/recompiler/Translation/src/DispatchInstructions.cpp
 +++ b/core/shader/recompiler/Translation/src/DispatchInstructions.cpp
-@@ -85,6 +85,43 @@ bool DebugProbeActive() {
+@@ -85,6 +85,46 @@ bool DebugProbeActive() {
      return g_debugProbeActive.load();
  }
  
@@ -275,7 +275,10 @@ index e2c9f9f7b..5e6d76349 100644
 +}
 +
 +bool QuadDppMoves() {
-+    static const bool quad = std::getenv("APS5_NO_QUAD_DPP") == nullptr;
++    static const bool quad = [] {
++        const char* text = std::getenv("APS5_NO_QUAD_DPP");
++        return text == nullptr || text[0] == '\0' || std::strcmp(text, "0") == 0;
++    }();
 +    return quad;
 +}
 +
